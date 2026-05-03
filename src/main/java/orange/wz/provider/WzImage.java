@@ -3,10 +3,12 @@ package orange.wz.provider;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
+import orange.wz.gui.component.form.data.ExportXmlData.ExportVersion;
 import orange.wz.provider.properties.WzCanvasProperty;
 import orange.wz.provider.properties.WzExtended;
 import orange.wz.provider.properties.WzListProperty;
 import orange.wz.provider.tools.*;
+import orange.wz.provider.tools.CryptoConstants;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -90,7 +92,13 @@ public class WzImage extends WzObject {
             status = WzFileStatus.PARSE_SUCCESS;
             return true;
         } catch (Exception e) {
-            log.error("WzImage 解析错误 : {}", name);
+            status = WzFileStatus.ERROR_SPECIAL_ENCODE;
+            int pos = -1;
+            try {
+                pos = reader == null ? -1 : reader.getPosition();
+            } catch (Exception ignored) {
+            }
+            log.error("WzImage 解析错误 : {} pos={}", name, pos, e);
             return false;
         }
     }
@@ -156,7 +164,7 @@ public class WzImage extends WzObject {
         }
     }
 
-    public boolean exportToXml(Path path, int indent, MediaExportType mediaExportType, boolean linux) {
+    public boolean exportToXml(Path path, int indent, MediaExportType mediaExportType, boolean linux, ExportVersion version) {
         boolean parseStatus = status == WzFileStatus.PARSE_SUCCESS;
         if (!parseStatus) {
             if (!parse()) {
@@ -164,7 +172,7 @@ public class WzImage extends WzObject {
                 return false;
             }
         }
-        XmlExport export = new XmlExport(this, indent, linux, mediaExportType);
+        XmlExport export = new XmlExport(this, indent, linux, mediaExportType, version);
         if (!export.export(path)) {
             return false;
         }

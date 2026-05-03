@@ -23,6 +23,11 @@ public class FloatForm extends AbstractValueForm {
     }
 
     @Override
+    protected boolean isPropertyMeaningLookupEnabled() {
+        return true;
+    }
+
+    @Override
     public FloatFormData getData() {
         float value;
         try {

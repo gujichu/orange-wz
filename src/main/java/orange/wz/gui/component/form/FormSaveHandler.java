@@ -8,6 +8,11 @@ import orange.wz.provider.WzImage;
 import orange.wz.provider.WzObject;
 import orange.wz.provider.properties.*;
 
+import javax.swing.SwingUtilities;
+import javax.swing.tree.DefaultMutableTreeNode;
+import javax.swing.tree.DefaultTreeModel;
+import javax.swing.tree.TreePath;
+
 public class FormSaveHandler {
     public static void saveClick(WzObject wzObject, EditPane editPane) {
         if (wzObject == null) return;
@@ -32,7 +37,15 @@ public class FormSaveHandler {
             case LUA_PROPERTY -> changeLua((WzLuaProperty) wzObject, editPane);
         };
 
-        editPane.getTree().updateUI();
+        SwingUtilities.invokeLater(() -> {
+            TreePath selectedPath = editPane.getTree().getSelectionPath();
+            DefaultTreeModel model = (DefaultTreeModel) editPane.getTree().getModel();
+            if (selectedPath != null && selectedPath.getLastPathComponent() instanceof DefaultMutableTreeNode node) {
+                model.nodeChanged(node);
+            } else {
+                model.reload();
+            }
+        });
 
         if (!res) {
             JMessageUtil.warn("什么都没有保存");

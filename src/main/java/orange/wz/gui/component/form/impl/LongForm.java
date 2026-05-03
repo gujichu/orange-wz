@@ -23,6 +23,11 @@ public class LongForm extends AbstractValueForm {
     }
 
     @Override
+    protected boolean isPropertyMeaningLookupEnabled() {
+        return true;
+    }
+
+    @Override
     public LongFormData getData() {
         long value;
         try {

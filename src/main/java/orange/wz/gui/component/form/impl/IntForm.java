@@ -23,6 +23,11 @@ public class IntForm extends AbstractValueForm {
     }
 
     @Override
+    protected boolean isPropertyMeaningLookupEnabled() {
+        return true;
+    }
+
+    @Override
     public IntFormData getData() {
         int value;
         try {

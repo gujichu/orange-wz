@@ -3,7 +3,7 @@
           xsi:schemaLocation="http://maven.apache.org/ASSEMBLY/2.1.0 http://maven.apache.org/xsd/assembly-2.1.0.xsd">
     <id>bundle</id>
     <formats>
-        <format>zip</format>
+        <format>dir</format>
     </formats>
     <includeBaseDirectory>false</includeBaseDirectory>
     <fileSets>
@@ -30,12 +30,29 @@
             <directory>${project.build.directory}/lib</directory>
             <outputDirectory>/lib</outputDirectory>
         </fileSet>
+        <!-- 包含必要的DLL和keys.dat -->
         <fileSet>
             <directory>${project.basedir}</directory>
             <outputDirectory>/</outputDirectory>
             <includes>
                 <include>libcrypto-3-x64.dll</include>
+                <include>keys.dat</include>
+            </includes>
+        </fileSet>
+        <!-- 包含 tools 目录 -->
+        <fileSet>
+            <directory>${project.basedir}/tools</directory>
+            <outputDirectory>/tools</outputDirectory>
+            <includes>
+                <include>ffmpeg.exe</include>
             </includes>
         </fileSet>
     </fileSets>
+    <!-- 添加启动脚本 -->
+    <files>
+        <file>
+            <source>${project.basedir}/OrzRepacker.bat</source>
+            <outputDirectory>/</outputDirectory>
+        </file>
+    </files>
 </assembly>

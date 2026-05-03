@@ -44,6 +44,8 @@ public class WzFolder extends WzObject {
             add(wzFolder);
         } else if (wzObject instanceof WzDirectory wzDirectory) {
             add(wzDirectory);
+        } else if (wzObject instanceof WzMsImageFile wzMsImg) {
+            add(wzMsImg);
         } else if (wzObject instanceof WzImageFile wzImg) {
             add(wzImg);
         } else if (wzObject instanceof WzXmlFile wzXml) {
@@ -63,6 +65,10 @@ public class WzFolder extends WzObject {
         children.add(wzImage);
     }
 
+    public void add(WzMsImageFile wzMsImage) {
+        children.add(wzMsImage);
+    }
+
     public void add(WzXmlFile wzXmlFile) {
         children.add(wzXmlFile);
     }
@@ -72,6 +78,8 @@ public class WzFolder extends WzObject {
             return children.removeFolder(wzObject.getName());
         } else if (wzObject instanceof WzDirectory) {
             return children.removeWzFile(wzObject.getName());
+        } else if (wzObject instanceof WzMsImageFile) {
+            return children.removeWzMsImageFile(wzObject.getName());
         } else if (wzObject instanceof WzImageFile) {
             return children.removeWzImageFile(wzObject.getName());
         } else if (wzObject instanceof WzXmlFile) {
@@ -113,6 +121,10 @@ public class WzFolder extends WzObject {
             WzImageFile wzImageFile = new WzImageFile(filename, pathStr, keyBoxName, iv, key);
             children.add(wzImageFile);
             return wzImageFile;
+        } else if (filename.endsWith(".ms")) {
+            WzMsImageFile wzMsImageFile = new WzMsImageFile(filename, pathStr, keyBoxName, iv, key);
+            children.add(wzMsImageFile);
+            return wzMsImageFile;
         } else if (filename.endsWith(".xml")) {
             WzXmlFile wzXmlFile = new WzXmlFile(filename, pathStr, keyBoxName, iv, key);
             children.add(wzXmlFile);

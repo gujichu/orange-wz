@@ -72,6 +72,12 @@
             <artifactId>tritonus-share</artifactId>
             <version>0.3.7.4</version>
         </dependency>
+        <!-- GIF 编码库 -->
+        <dependency>
+            <groupId>com.madgag</groupId>
+            <artifactId>animated-gif-lib</artifactId>
+            <version>1.4</version>
+        </dependency>
     </dependencies>
 
     <build>
@@ -172,8 +178,7 @@
                                         <include name="**/*"/>
                                     </fileset>
                                 </copy>
-                                <copy file="${project.build.directory}/${project.build.finalName}-encrypted.jar"
-                                      tofile="${project.build.directory}/${project.build.finalName}.jar"/>
+                                <!-- 不替换成加密版本，保持原jar可用 -->
                             </target>
                         </configuration>
                         <goals>

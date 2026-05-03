@@ -15,12 +15,56 @@ import java.awt.image.WritableRaster;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.zip.Deflater;
 import java.util.zip.DeflaterOutputStream;
 import java.util.zip.InflaterInputStream;
 
 @Getter
 @Slf4j
 public class WzPngProperty extends WzImageProperty {
+    public static class CompressedPngData {
+        private final int width;
+        private final int height;
+        private final WzPngFormat format;
+        private final int scale;
+        private final boolean listWzUsed;
+        private final byte[] compressedBytes;
+
+        public CompressedPngData(int width, int height, WzPngFormat format, int scale, boolean listWzUsed, byte[] compressedBytes) {
+            this.width = width;
+            this.height = height;
+            this.format = format;
+            this.scale = scale;
+            this.listWzUsed = listWzUsed;
+            this.compressedBytes = compressedBytes;
+        }
+
+        public int getWidth() {
+            return width;
+        }
+
+        public int getHeight() {
+            return height;
+        }
+
+        public WzPngFormat getFormat() {
+            return format;
+        }
+
+        public int getScale() {
+            return scale;
+        }
+
+        public boolean isListWzUsed() {
+            return listWzUsed;
+        }
+
+        public byte[] getCompressedBytes() {
+            return compressedBytes;
+        }
+    }
+
     private int width;
     private int height;
     private WzPngFormat format;
@@ -55,15 +99,71 @@ public class WzPngProperty extends WzImageProperty {
             }
         }
     }
+	
+    public WzPngProperty(String name, int width, int height, int format, int scale, byte[] imageBytes, WzObject parent, WzImage wzImage) {
+        this(name, parent, wzImage);
+        this.width = width;
+        this.height = height;
+        this.format = WzPngFormat.getByValue(format);
+        this.scale = scale;
+
+        if (imageBytes != null && imageBytes.length > 0) {
+            try (ByteArrayInputStream bis = new ByteArrayInputStream(imageBytes)) {
+                BufferedImage image = ImageIO.read(bis);
+                if (image == null) {
+                    throw new IOException("无法解码图片数据，可能不是支持的图片格式");
+                }
+                this.image = image;
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
+        }
+    }
 
     // Setter And Parse ------------------------------------------------------------------------------------------------
     public void setData(BinaryReader reader) {
         width = reader.readCompressedInt();
         height = reader.readCompressedInt();
-        format = WzPngFormat.getByValue(reader.readCompressedInt());
-        scale = reader.getByte();
+        // 兼容两种 PNG 头部布局：
+        // - Harepacker/经典：format1(int) + format2(int) -> format = format1 + (format2 << 8)，之后再跳过4字节
+        // - 本项目旧实现：format(int) + scale(byte) + 4字节
+        int format1 = reader.readCompressedInt();
+        int posAfterFormat1 = reader.getPosition();
+        int format2 = reader.readCompressedInt();
+        int combined = format1 + (format2 << 8);
+        if (isKnownFormat(combined)) {
+            format = WzPngFormat.getByValue(combined);
+            // Harepacker 这条布局里没有 scale 字段；我们用 0 表示 scale=1
+            scale = 0;
+        } else {
+            // 回退到旧布局：恢复位置，把 format1 当完整 format，并读取 scale(byte)
+            reader.setPosition(posAfterFormat1);
+            format = WzPngFormat.getByValue(format1);
+            scale = reader.getByte();
+        }
+
+        // 将 Harepacker 的 Format3/Format517 映射为现有解码路径（最小可读，避免崩溃）
+        if (format == WzPngFormat.FORMAT3) {
+            // 以 ARGB4444 + scale=2 的路径解码（1<<1=2）
+            format = WzPngFormat.ARGB4444;
+            scale = 1;
+        } else if (format == WzPngFormat.FORMAT517) {
+            // 以 RGB565 + scale=4 的路径解码（1<<2=4）
+            format = WzPngFormat.RGB565;
+            scale = 2;
+        }
+
         reader.skip(4); // 跳过4个字节
         offset = reader.getPosition();
+    }
+
+    private boolean isKnownFormat(int value) {
+        for (WzPngFormat e : WzPngFormat.values()) {
+            if (e.getValue() == value) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public void setImage(BufferedImage image, WzPngFormat format, int scale) {
@@ -71,6 +171,38 @@ public class WzPngProperty extends WzImageProperty {
         this.scale = scale;
         this.image = image;
         compressImage();
+    }
+
+    public CompressedPngData exportCompressedData() {
+        byte[] bytes = getCompressedBytes(false);
+        if (bytes == null) {
+            return null;
+        }
+        return new CompressedPngData(
+                width,
+                height,
+                format,
+                scale,
+                listWzUsed,
+                Arrays.copyOf(bytes, bytes.length)
+        );
+    }
+
+    public void copyCompressedFrom(CompressedPngData data, boolean keepImageInMem) {
+        if (data == null || data.getCompressedBytes() == null) {
+            throw new IllegalArgumentException("压缩图片数据为空");
+        }
+        width = data.getWidth();
+        height = data.getHeight();
+        format = data.getFormat();
+        scale = data.getScale();
+        listWzUsed = data.isListWzUsed();
+        compressedBytes = Arrays.copyOf(data.getCompressedBytes(), data.getCompressedBytes().length);
+        offset = 0;
+        image = null;
+        if (keepImageInMem) {
+            parse(true);
+        }
     }
 
     private void parse(boolean saveInMem) {
@@ -244,9 +376,15 @@ public class WzPngProperty extends WzImageProperty {
     }
 
     private byte[] decompress(byte[] compressedBytes) {
-        WzMutableKey wzMutableKey = wzImage.getReader().getWzMutableKey();
         int size = ImgTool.getRawByteSize(format, getActualScale(), width, height);
         byte[] rawBytes = new byte[size]; // decompress byte
+        WzMutableKey wzMutableKey = null;
+        if (listWzUsed) {
+            if (wzImage == null || wzImage.getReader() == null) {
+                throw new RuntimeException("listWz 图片解密失败：缺少 WzReader 上下文");
+            }
+            wzMutableKey = wzImage.getReader().getWzMutableKey();
+        }
         // 使用 try-with-resources 确保资源正确关闭
         try (InflaterInputStream zlib = createZlibStream(compressedBytes, wzMutableKey)) {
             // zlib.read(decBuf, 0, uncompressedSize); 可能一次读不完全部数据，要循环确认，所以有了这个方法
@@ -283,8 +421,30 @@ public class WzPngProperty extends WzImageProperty {
                 if (actualScale != 1) {
                     throw new IllegalArgumentException(WzPngFormat.ARGB8888 + " 不支持 scale");
                 }
-                for (int v : argb32) {
-                    writer.putInt(v);
+                boolean useOldEnc = false;
+                try {
+                    useOldEnc = orange.wz.gui.MainFrame.getInstance().isUseOldSkillEncryption();
+                } catch (Exception e) {
+                    // ignore if MainFrame is not available
+                }
+                
+                if (useOldEnc) {
+                    // 旧版技能特效模式：使用 BGRA 顺序，和 MapleLib 保持一致
+                    for (int v : argb32) {
+                        int a = (v >>> 24) & 0xFF;
+                        int r = (v >>> 16) & 0xFF;
+                        int g = (v >>> 8) & 0xFF;
+                        int b = v & 0xFF;
+                        writer.putByte((byte) b);
+                        writer.putByte((byte) g);
+                        writer.putByte((byte) r);
+                        writer.putByte((byte) a);
+                    }
+                } else {
+                    // 默认模式：保持原来的方式不变
+                    for (int v : argb32) {
+                        writer.putInt(v);
+                    }
                 }
                 yield writer.output();
             }
@@ -331,13 +491,16 @@ public class WzPngProperty extends WzImageProperty {
                 // ImgTool.Argb32.toBC7(img, writer);
                 yield writer.output();
             }
+            default -> throw new IllegalArgumentException("不支持的 PNG 格式用于写回: " + format);
         };
     }
 
     private byte[] zlibCompress(byte[] rawBytes) {
         ByteArrayOutputStream memStream = new ByteArrayOutputStream();
+        // 输出标准 zlib 流（包含 header + adler32），与 InflaterInputStream 解压路径匹配
+        Deflater deflater = new Deflater(Deflater.DEFAULT_COMPRESSION, false);
 
-        try (DeflaterOutputStream zip = new DeflaterOutputStream(memStream)) {
+        try (DeflaterOutputStream zip = new DeflaterOutputStream(memStream, deflater)) {
             zip.write(rawBytes);
         } catch (IOException e) {
             throw new RuntimeException("压缩失败", e);
@@ -358,18 +521,42 @@ public class WzPngProperty extends WzImageProperty {
 
     private void compressBytes(byte[] rawBytes, WzMutableKey wzMutableKey) {
         compressedBytes = zlibCompress(rawBytes);
-        if (listWzUsed) {
-            BinaryWriter writer = new BinaryWriter(compressedBytes);
+        // 检查是否使用旧版技能特效加密
+        boolean useOldEnc = false;
+        try {
+            useOldEnc = orange.wz.gui.MainFrame.getInstance().isUseOldSkillEncryption();
+        } catch (Exception e) {
+            // ignore if MainFrame is not available
+        }
+
+        if (useOldEnc) {
+            // 旧版技能特效模式：使用 listWz 格式的加密
+            WzMutableKey oldKey = new WzMutableKey(orange.wz.provider.tools.CryptoConstants.WZ_MSEAIV, orange.wz.provider.tools.CryptoConstants.USER_KEY);
+            
+            BinaryWriter writer = new BinaryWriter();
+            int remaining = compressedBytes.length;
+            int offset = 0;
+            while (remaining > 0) {
+                int chunkSize = Math.min(remaining, 65535); // 每个块最大 65535 字节
+                writer.putInt(chunkSize);
+                for (int i = 0; i < chunkSize; i++) {
+                    writer.putByte((byte) (compressedBytes[offset + i] ^ oldKey.get(i)));
+                }
+                remaining -= chunkSize;
+                offset += chunkSize;
+            }
+            compressedBytes = writer.output();
+        } else if (listWzUsed) {
+            // 默认模式：保持原来的方式不变，只根据 listWzUsed 标志
+            BinaryWriter writer = new BinaryWriter();
             writer.setWzMutableKey(wzMutableKey);
-            writer.putInt(2);
-            for (int i = 0; i < 2; i++) {
+            writer.putInt(compressedBytes.length);
+            for (int i = 0; i < compressedBytes.length; i++) {
                 writer.putByte((byte) (compressedBytes[i] ^ wzMutableKey.get(i)));
             }
-            writer.putInt(compressedBytes.length - 2);
-            for (int i = 2; i < compressedBytes.length; i++)
-                writer.putByte((byte) (compressedBytes[i] ^ wzMutableKey.get(i - 2)));
             compressedBytes = writer.output();
         }
+        // 否则（没有 listWzUsed）：保持压缩后的原始 bytes，和原来一样
     }
 
     public byte[] getCompressedBytes(boolean saveInMem) {
@@ -385,6 +572,12 @@ public class WzPngProperty extends WzImageProperty {
                     returnBytes = reader.getBytes(len);
                 }
                 reader.setPosition(curOffset);
+
+                // 确保 listWzUsed 被正确设置
+                if (returnBytes != null && returnBytes.length >= 2) {
+                    int header = ((returnBytes[1] & 0xFF) << 8) | (returnBytes[0] & 0xFF);
+                    listWzUsed = header != 0x9C78 && header != 0xDA78 && header != 0x0178;
+                }
 
                 if (saveInMem) {
                     compressedBytes = returnBytes;
@@ -430,9 +623,15 @@ public class WzPngProperty extends WzImageProperty {
         clone.height = height;
         clone.format = format;
         clone.scale = scale;
-        clone.listWzUsed = false;
-        // clone.compressedBytes = Arrays.copyOf(compressedBytes, compressedBytes.length); // 这个需要用新密钥重新压缩
-        clone.image = deepClone(getImage(false));
+        // getCompressedBytes 可能首次从 reader 拉取数据并据 zlib 头刷新 listWzUsed；必须先调用再拷贝标志，否则会误判为非 List.wz 加密导致解压时空密钥 NPE
+        byte[] srcCompressed = getCompressedBytes(false);
+        clone.listWzUsed = listWzUsed;
+        if (srcCompressed != null) {
+            clone.compressedBytes = Arrays.copyOf(srcCompressed, srcCompressed.length);
+        }
+        if (image != null) {
+            clone.image = deepClone(image);
+        }
 
         return clone;
     }

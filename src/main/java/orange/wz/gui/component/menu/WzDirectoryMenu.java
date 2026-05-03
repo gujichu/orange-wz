@@ -49,6 +49,7 @@ public final class WzDirectoryMenu extends JPopupMenu {
 
         copyBtn = new JMenuItem("复制", AiOutlineCopy);
         pasteBtn = new JMenuItem("粘贴", MdOutlineContentPaste);
+        JMenuItem duplicateSiblingBtn = new JMenuItem("同节点复制");
         deleteBtn = new JMenuItem("删除节点", AiOutlineDelete);
         JMenuItem imageBtn = new JMenuItem("图片嗅探");
         JMenuItem importBtn = new JMenu("导入");
@@ -63,6 +64,7 @@ public final class WzDirectoryMenu extends JPopupMenu {
         addImgBtnAction(addImgBtn);
         copyBtn.addActionListener(e -> editPane.doCopy());
         pasteBtn.addActionListener(e -> editPane.doPaste());
+        duplicateSiblingBtn.addActionListener(e -> editPane.doDuplicateSibling());
         deleteBtnAction(deleteBtn);
         addImageBtnAction(imageBtn);
         addImportImgBtnAction(importImgBtn);
@@ -73,6 +75,7 @@ public final class WzDirectoryMenu extends JPopupMenu {
         add(addBtn);
         add(copyBtn);
         add(pasteBtn);
+        add(duplicateSiblingBtn);
         add(deleteBtn);
         add(imageBtn);
         add(importBtn);

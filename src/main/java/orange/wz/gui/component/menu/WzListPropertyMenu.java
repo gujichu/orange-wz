@@ -70,15 +70,19 @@ public final class WzListPropertyMenu extends JPopupMenu {
 
         copyBtn = new JMenuItem("复制", AiOutlineCopy);
         pasteBtn = new JMenuItem("粘贴", MdOutlineContentPaste);
+        JMenuItem duplicateSiblingBtn = new JMenuItem("同节点复制");
         deleteBtn = new JMenuItem("删除节点", AiOutlineDelete);
         JMenuItem chineseBtn = new JMenuItem("汉化");
         JMenuItem compareImgBtn = new JMenuItem("图片对比");
+        JMenuItem imagePreviewBtn = new JMenuItem("动画预览");
         JMenuItem imageBtn = new JMenuItem("图片嗅探");
         JMenuItem outlinkBtn = new JMenuItem("Outlink");
         JMenuItem sicBtn = new JMenuItem("排序并改名");
         JMenuItem delChild = new JMenuItem("批量删除");
+        JMenuItem batchModify = new JMenuItem("批量修改");
         JMenuItem changeCavFmt = new JMenuItem("图片格式");
         JMenuItem scaleImage = new JMenuItem("图片缩放");
+        JMenuItem imageSize = new JMenuItem("图片大小");
         JMenuItem changeNodeName = new JMenuItem("修改节点名");
 
         addCanvasBtnItem(addCanvasBtn);
@@ -96,29 +100,37 @@ public final class WzListPropertyMenu extends JPopupMenu {
         addVectorBtnItem(addVectorBtn);
         copyBtn.addActionListener(e -> editPane.doCopy());
         pasteBtn.addActionListener(e -> editPane.doPaste());
+        duplicateSiblingBtn.addActionListener(e -> editPane.doDuplicateSibling());
         deleteBtnAction(deleteBtn);
         addChineseBtnAction(chineseBtn);
         compareImgBtn.addActionListener(e -> editPane.compareImg());
+        addImagePreviewBtnAction(imagePreviewBtn);
         addImageBtnAction(imageBtn);
         addOutlinkBtnAction(outlinkBtn);
         sicBtn.addActionListener(e -> editPane.sortAndReindexChildren());
         delChild.addActionListener(e -> editPane.removeAllWzChildWithName());
+        batchModify.addActionListener(e -> editPane.openBatchModify());
         changeCavFmt.addActionListener(e -> editPane.changeCavFmt());
         scaleImage.addActionListener(e -> editPane.scaleImage());
+        imageSize.addActionListener(e -> editPane.resizeImageSize());
         changeNodeName.addActionListener(e -> editPane.changeNodeName());
 
         add(addBtn);
         add(copyBtn);
         add(pasteBtn);
+        add(duplicateSiblingBtn);
         add(deleteBtn);
         add(chineseBtn);
         add(compareImgBtn);
+        add(imagePreviewBtn);
         add(imageBtn);
         add(outlinkBtn);
         add(sicBtn);
         add(delChild);
+        add(batchModify);
         add(changeCavFmt);
         add(scaleImage);
+        add(imageSize);
         add(changeNodeName);
     }
 
@@ -714,6 +726,59 @@ public final class WzListPropertyMenu extends JPopupMenu {
                         MainFrame.getInstance().setStatusText("Outlink 结束，耗时 %d 秒", Duration.between(now, end).toSeconds());
                     } catch (Exception ex) {
                         throw new RuntimeException(ex);
+                    }
+                }
+            };
+            worker.execute();
+        });
+    }
+    
+    private void addImagePreviewBtnAction(JMenuItem item) {
+        item.addActionListener(e -> {
+            TreePath[] selectedPaths = tree.getSelectionPaths();
+            if (selectedPaths == null || selectedPaths.length != 1) {
+                JMessageUtil.error("该功能不支持多选");
+                return;
+            }
+            
+            DefaultMutableTreeNode node = (DefaultMutableTreeNode) selectedPaths[0].getLastPathComponent();
+            WzObject wzObject = (WzObject) node.getUserObject();
+            
+            String cacheKey = wzObject.getPath();
+            
+            // 如果已经有缓存，**先清除**！因为用户可能编辑了节点内容，需要重新生成
+            boolean hadCache = editPane.getImagePreviewCache().get(cacheKey) != null;
+            if (hadCache) {
+                log.debug("清除已有缓存，重新生成预览: {}", cacheKey);
+                editPane.getImagePreviewCache().remove(cacheKey);
+            }
+            
+            // 重新收集图片
+            SwingWorker<ImagePreviewData, Void> worker = new SwingWorker<>() {
+                @Override
+                protected ImagePreviewData doInBackground() {
+                    ImagePreviewData data = ImagePreviewCollector.collect(wzObject);
+                    data.setRootNode(wzObject);
+                    return data;
+                }
+                
+                @Override
+                protected void done() {
+                    try {
+                        ImagePreviewData data = get();
+                        if (!data.hasContent()) {
+                            JMessageUtil.warn("该节点下没有找到可预览的图片");
+                            return;
+                        }
+                        
+                        // 保存到缓存
+                        editPane.getImagePreviewCache().put(cacheKey, data);
+                        
+                        // 显示预览
+                        editPane.getNodeForm().setPreviewData(data);
+                    } catch (Exception ex) {
+                        log.error("图片预览失败", ex);
+                        JMessageUtil.error("图片预览失败: " + ex.getMessage());
                     }
                 }
             };

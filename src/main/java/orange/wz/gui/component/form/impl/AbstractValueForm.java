@@ -4,9 +4,11 @@ import lombok.Getter;
 import orange.wz.gui.component.form.FormSaveHandler;
 import orange.wz.gui.component.form.data.NodeFormData;
 import orange.wz.gui.component.panel.EditPane;
+import orange.wz.gui.utils.SkillPropertyInfoJson;
 import orange.wz.provider.WzObject;
 
 import javax.swing.*;
+import javax.swing.border.TitledBorder;
 import java.awt.*;
 
 public abstract class AbstractValueForm {
@@ -18,6 +20,9 @@ public abstract class AbstractValueForm {
     protected final JTextField nameInput = new JTextField(defaultColumns);
     protected final JTextField typeInput = new JTextField(defaultColumns);
 
+    private final JPanel meaningPanel = new JPanel(new BorderLayout());
+    private final JTextArea propertyMeaningArea = new JTextArea(3, 20);
+
     private int topPanelRow = 0;
     private int bottomPanelCol = 0;
 
@@ -25,8 +30,22 @@ public abstract class AbstractValueForm {
     private WzObject curWzObject;
 
     protected AbstractValueForm() {
+        propertyMeaningArea.setEditable(false);
+        propertyMeaningArea.setOpaque(false);
+        propertyMeaningArea.setLineWrap(true);
+        propertyMeaningArea.setWrapStyleWord(true);
+        JScrollPane meaningScroll = new JScrollPane(propertyMeaningArea);
+        meaningScroll.setBorder(BorderFactory.createEmptyBorder());
+        meaningPanel.setBorder(new TitledBorder("含义"));
+        meaningPanel.add(meaningScroll, BorderLayout.CENTER);
+        meaningPanel.setVisible(false);
+
+        JPanel topWrap = new JPanel(new BorderLayout());
+        topWrap.add(topLeftPanel, BorderLayout.CENTER);
+        topWrap.add(meaningPanel, BorderLayout.SOUTH);
+
         JPanel topPanel = new JPanel(new BorderLayout());
-        topPanel.add(topLeftPanel, BorderLayout.CENTER);
+        topPanel.add(topWrap, BorderLayout.CENTER);
         valuePane.add(topPanel, BorderLayout.NORTH);
 
         JPanel bottomPanel = new JPanel(new BorderLayout());
@@ -86,10 +105,39 @@ public abstract class AbstractValueForm {
         typeInput.setText(type);
         this.curWzObject = wzObject;
         this.editPane = editPane;
+        if (isPropertyMeaningLookupEnabled()) {
+            refreshPropertyMeaningHint(name);
+        } else {
+            refreshPropertyMeaningHint(null);
+        }
+    }
+
+    /**
+     * 为向量、数值、字符串、Lua 等属性表单开启：按节点名称在 info.json 中查找并显示含义。
+     */
+    protected boolean isPropertyMeaningLookupEnabled() {
+        return false;
+    }
+
+    private void refreshPropertyMeaningHint(String propertyName) {
+        if (propertyName == null) {
+            propertyMeaningArea.setText("");
+            meaningPanel.setVisible(false);
+            return;
+        }
+        String desc = SkillPropertyInfoJson.lookup(propertyName);
+        if (desc != null && !desc.isEmpty()) {
+            propertyMeaningArea.setText(desc);
+            meaningPanel.setVisible(true);
+        } else {
+            propertyMeaningArea.setText("");
+            meaningPanel.setVisible(false);
+        }
     }
 
     public void onHide() {
         curWzObject = null;
+        refreshPropertyMeaningHint(null);
     }
 
     public abstract NodeFormData getData();

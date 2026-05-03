@@ -23,6 +23,11 @@ public class DoubleForm extends AbstractValueForm {
     }
 
     @Override
+    protected boolean isPropertyMeaningLookupEnabled() {
+        return true;
+    }
+
+    @Override
     public DoubleFormData getData() {
         double value;
         try {

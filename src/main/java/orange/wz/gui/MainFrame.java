@@ -52,6 +52,8 @@ public class MainFrame extends JFrame {
     private JMenuItem viewShow;
 
     private Color cavFormColor = null;
+    private boolean useOldSkillEncryption = false;
+    private JMenu tools; // 将 tools 菜单提升为成员变量
 
     private CenterPane centerPane;
 
@@ -76,7 +78,7 @@ public class MainFrame extends JFrame {
             UIManager.setLookAndFeel(new FlatLightLaf());
         } catch (Exception ignored) {
         }
-        setTitle("OrzRepacker");
+        setTitle("OrzRepacker顾及");
         setSize(1024, 768);
         setLocationRelativeTo(null);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -119,7 +121,7 @@ public class MainFrame extends JFrame {
         fileMenu.add(unloadAll);
 
         // 工具
-        JMenu tools = new JMenu("工具");
+        tools = new JMenu("工具");
 
         JMenuItem selectCavBGC = new JMenuItem("图像背景");
         selectCavBGC.addActionListener(e -> {
@@ -165,6 +167,14 @@ public class MainFrame extends JFrame {
         // 密钥
         keyBox = new KeyBox(wzKeyStorage.loadAll().toArray(new WzKey[0])); // 选择框
         JButton keyManager = new JButton("密钥管理");
+        
+        // 旧版技能特效加密复选框
+        JCheckBoxMenuItem oldSkillEncMenuItem = new JCheckBoxMenuItem("旧版技能特效");
+        oldSkillEncMenuItem.setSelected(useOldSkillEncryption);
+        oldSkillEncMenuItem.addActionListener(e -> {
+            useOldSkillEncryption = oldSkillEncMenuItem.isSelected();
+        });
+        tools.add(oldSkillEncMenuItem);
 
 
         menuBar.add(fileMenu);
@@ -177,7 +187,7 @@ public class MainFrame extends JFrame {
 
 
         openFiles.addActionListener(e -> {
-            List<File> files = orange.wz.gui.component.FileDialog.chooseOpenFiles(new String[]{"wz", "img", "xml"});
+            List<File> files = orange.wz.gui.component.FileDialog.chooseOpenFiles(new String[]{"wz", "img", "xml", "ms"});
             centerPane.getLeftEditPane().loadFiles(files);
         });
         openFolders.addActionListener(e -> {
@@ -456,6 +466,17 @@ public class MainFrame extends JFrame {
                 break;
             }
         }
+        useOldSkillEncryption = prefs.getBoolean("useOldSkillEncryption", false);
+        // 查找我们添加的菜单项并设置它的选中状态
+        for (Component comp : tools.getMenuComponents()) {
+            if (comp instanceof JCheckBoxMenuItem) {
+                JCheckBoxMenuItem item = (JCheckBoxMenuItem) comp;
+                if ("旧版技能特效".equals(item.getText())) {
+                    item.setSelected(useOldSkillEncryption);
+                    break;
+                }
+            }
+        }
     }
 
     private void saveConfig() {
@@ -463,5 +484,10 @@ public class MainFrame extends JFrame {
         if (wzKey != null) {
             prefs.put("keybox", String.valueOf(wzKey.getId()));
         }
+        prefs.putBoolean("useOldSkillEncryption", useOldSkillEncryption);
+    }
+    
+    public boolean isUseOldSkillEncryption() {
+        return useOldSkillEncryption;
     }
 }

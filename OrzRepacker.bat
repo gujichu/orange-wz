@@ -1,3 +1,4 @@
+
 @echo off
-title OrzRepacker
-jre\bin\java -javaagent:OrzRepacker.jar -jar OrzRepacker.jar
+cd /d "%~dp0"
+start "" jre\bin\javaw -jar OrzRepacker.jar

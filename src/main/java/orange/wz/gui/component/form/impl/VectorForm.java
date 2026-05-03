@@ -27,6 +27,11 @@ public class VectorForm extends AbstractValueForm {
     }
 
     @Override
+    protected boolean isPropertyMeaningLookupEnabled() {
+        return true;
+    }
+
+    @Override
     public VectorFormData getData() {
         int x, y;
         try {

@@ -1249,17 +1249,20 @@ public final class ImgTool {
     private static int getRawByteSize(WzPngFormat format, int width, int height) {
         int size = width * height * 4;
         return switch (format) {
-            case WzPngFormat.ARGB4444, WzPngFormat.ARGB1555, WzPngFormat.RGB565 -> size / 2; // int 压缩成 short 大小减半
+            case WzPngFormat.ARGB4444, WzPngFormat.FORMAT3, WzPngFormat.ARGB1555, WzPngFormat.RGB565, WzPngFormat.FORMAT517 ->
+                    size / 2; // int 压缩成 short 大小减半
             case WzPngFormat.ARGB8888 -> size; // 原始数据
             case WzPngFormat.DXT3, WzPngFormat.DXT5 -> size / 4; // 特殊压缩，大小为原来的1/4
             case BC7 -> (width & ~3) * (height & ~3); // 宽度高度不总是4的倍数，NX会额外添加行数来补齐
+            default -> throw new IllegalArgumentException("未知的图片压缩格式 " + format);
         };
     }
 
     public static int getBufferImageType(WzPngFormat format) {
         return switch (format) {
-            case WzPngFormat.ARGB4444, ARGB8888, ARGB1555, DXT3, DXT5, BC7 -> BufferedImage.TYPE_INT_ARGB;
-            case RGB565 -> BufferedImage.TYPE_USHORT_565_RGB;
+            case WzPngFormat.ARGB4444, WzPngFormat.FORMAT3, ARGB8888, ARGB1555, DXT3, DXT5, BC7 -> BufferedImage.TYPE_INT_ARGB;
+            case RGB565, WzPngFormat.FORMAT517 -> BufferedImage.TYPE_USHORT_565_RGB;
+            default -> BufferedImage.TYPE_INT_ARGB;
         };
     }
 

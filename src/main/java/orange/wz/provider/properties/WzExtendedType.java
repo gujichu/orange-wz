@@ -5,6 +5,7 @@ import java.util.Map;
 public enum WzExtendedType {
     LIST("Property"),
     CANVAS("Canvas"),
+    CANVAS_VIDEO("Canvas#Video"),
     VECTOR("Shape2D#Vector2D"),
     CONVEX("Shape2D#Convex2D"),
     SOUND("Sound_DX8"),
@@ -14,6 +15,7 @@ public enum WzExtendedType {
     private static final Map<String, WzExtendedType> types = Map.of(
             LIST.getString(), LIST,
             CANVAS.getString(), CANVAS,
+            CANVAS_VIDEO.getString(), CANVAS_VIDEO,
             VECTOR.getString(), VECTOR,
             CONVEX.getString(), CONVEX,
             SOUND.getString(), SOUND,

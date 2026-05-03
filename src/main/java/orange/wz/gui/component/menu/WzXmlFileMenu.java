@@ -79,8 +79,10 @@ public final class WzXmlFileMenu extends JPopupMenu {
         JMenuItem imageBtn = new JMenuItem("图片嗅探");
         JMenuItem sicBtn = new JMenuItem("排序并改名");
         JMenuItem delChild = new JMenuItem("批量删除");
+        JMenuItem batchModify = new JMenuItem("批量修改");
         JMenuItem changeCavFmt = new JMenuItem("图片格式");
         JMenuItem scaleImage = new JMenuItem("图片缩放");
+        JMenuItem imageSize = new JMenuItem("图片大小");
         JMenuItem changeNodeName = new JMenuItem("修改节点名");
 
 
@@ -109,8 +111,10 @@ public final class WzXmlFileMenu extends JPopupMenu {
         addImageBtnAction(imageBtn);
         sicBtn.addActionListener(e -> editPane.sortAndReindexChildren());
         delChild.addActionListener(e -> editPane.removeAllWzChildWithName());
+        batchModify.addActionListener(e -> editPane.openBatchModify());
         changeCavFmt.addActionListener(e -> editPane.changeCavFmt());
         scaleImage.addActionListener(e -> editPane.scaleImage());
+        imageSize.addActionListener(e -> editPane.resizeImageSize());
         changeNodeName.addActionListener(e -> editPane.changeNodeName());
 
         add(addBtn);
@@ -126,8 +130,10 @@ public final class WzXmlFileMenu extends JPopupMenu {
         add(imageBtn);
         add(sicBtn);
         add(delChild);
+        add(batchModify);
         add(changeCavFmt);
         add(scaleImage);
+        add(imageSize);
         add(changeNodeName);
     }
 

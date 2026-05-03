@@ -70,6 +70,7 @@ public final class WzImageMenu extends JPopupMenu {
 
         copyBtn = new JMenuItem("复制", AiOutlineCopy);
         pasteBtn = new JMenuItem("粘贴", MdOutlineContentPaste);
+        JMenuItem duplicateSiblingBtn = new JMenuItem("同节点复制");
         deleteBtn = new JMenuItem("删除节点", AiOutlineDelete);
         JMenu exportBtn = new JMenu("导出");
         JMenuItem exportImgBtn = new JMenuItem("Img");
@@ -82,8 +83,10 @@ public final class WzImageMenu extends JPopupMenu {
         JMenuItem outlinkBtn = new JMenuItem("Outlink");
         JMenuItem sicBtn = new JMenuItem("排序并改名");
         JMenuItem delChild = new JMenuItem("批量删除");
+        JMenuItem batchModify = new JMenuItem("批量修改");
         JMenuItem changeCavFmt = new JMenuItem("图片格式");
         JMenuItem scaleImage = new JMenuItem("图片缩放");
+        JMenuItem imageSize = new JMenuItem("图片大小");
         JMenuItem changeNodeName = new JMenuItem("修改节点名");
 
         addCanvasBtnItem(addCanvasBtn);
@@ -101,6 +104,7 @@ public final class WzImageMenu extends JPopupMenu {
         addVectorBtnItem(addVectorBtn);
         copyBtn.addActionListener(e -> editPane.doCopy());
         pasteBtn.addActionListener(e -> editPane.doPaste());
+        duplicateSiblingBtn.addActionListener(e -> editPane.doDuplicateSibling());
         deleteBtnAction(deleteBtn);
         addExportImgBtnAction(exportImgBtn);
         addExportXmlBtnAction(exportXmlBtn);
@@ -110,13 +114,16 @@ public final class WzImageMenu extends JPopupMenu {
         addOutlinkBtnAction(outlinkBtn);
         sicBtn.addActionListener(e -> editPane.sortAndReindexChildren());
         delChild.addActionListener(e -> editPane.removeAllWzChildWithName());
+        batchModify.addActionListener(e -> editPane.openBatchModify());
         changeCavFmt.addActionListener(e -> editPane.changeCavFmt());
         scaleImage.addActionListener(e -> editPane.scaleImage());
+        imageSize.addActionListener(e -> editPane.resizeImageSize());
         changeNodeName.addActionListener(e -> editPane.changeNodeName());
 
         add(addBtn);
         add(copyBtn);
         add(pasteBtn);
+        add(duplicateSiblingBtn);
         add(deleteBtn);
         add(exportBtn);
         add(chineseBtn);
@@ -125,8 +132,10 @@ public final class WzImageMenu extends JPopupMenu {
         add(outlinkBtn);
         add(sicBtn);
         add(delChild);
+        add(batchModify);
         add(changeCavFmt);
         add(scaleImage);
+        add(imageSize);
         add(changeNodeName);
     }
 

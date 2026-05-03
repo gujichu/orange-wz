@@ -2,16 +2,18 @@ package orange.wz.gui.component.dialog;
 
 import orange.wz.gui.component.FileDialog;
 import orange.wz.gui.component.form.data.ExportXmlData;
+import orange.wz.gui.component.form.data.ExportXmlData.ExportVersion;
 import orange.wz.gui.component.panel.EditPane;
+import orange.wz.provider.tools.ExportXmlConfigIni;
+import orange.wz.provider.tools.ExportXmlConfigIni.Values;
 import orange.wz.provider.tools.MediaExportType;
 
 import javax.swing.*;
 import java.awt.*;
 import java.io.File;
-import java.util.prefs.Preferences;
 
 public final class ExportXmlDialog extends BaseDialog<ExportXmlData> {
-    private static final Preferences prefs = Preferences.userNodeForPackage(ExportXmlDialog.class);
+    private final Values initialConfig;
     private final JTextField indentField = new JTextField(20);
     private final JRadioButton noneRadio = new JRadioButton("不输出");
     private final JRadioButton base64Radio = new JRadioButton("Base64");
@@ -19,11 +21,15 @@ public final class ExportXmlDialog extends BaseDialog<ExportXmlData> {
     private final JRadioButton windowsRadio = new JRadioButton("Windows CRLF \\r\\n");
     private final JRadioButton linuxRadio = new JRadioButton("Linux LF \\n");
     private final JTextField pathField = new JTextField(20);
+    private final JRadioButton defaultRadio = new JRadioButton("默认");
+    private final JRadioButton v125Radio = new JRadioButton("125");
 
     public ExportXmlDialog(EditPane editPane) {
         super("导出 XML", editPane);
+        this.initialConfig = ExportXmlConfigIni.load();
+        Values v = this.initialConfig;
 
-        indentField.setText("2");
+        indentField.setText(String.valueOf(v.getIndent()));
         JButton selectBtn = new JButton("选择");
         selectBtn.setSelected(false);
         selectBtn.addActionListener(e -> {
@@ -33,6 +39,9 @@ public final class ExportXmlDialog extends BaseDialog<ExportXmlData> {
             pathField.setText(folder.getAbsolutePath());
         });
         pathField.setEditable(false);
+        if (!v.getExportPath().isBlank()) {
+            pathField.setText(v.getExportPath());
+        }
 
         addRow("缩进数量", indentField);
         // 创建互斥单选集合
@@ -40,7 +49,11 @@ public final class ExportXmlDialog extends BaseDialog<ExportXmlData> {
         mediaGroup.add(noneRadio);
         mediaGroup.add(base64Radio);
         mediaGroup.add(fileRadio);
-        noneRadio.setSelected(true);
+        switch (v.getMedia()) {
+            case BASE64 -> base64Radio.setSelected(true);
+            case FILE -> fileRadio.setSelected(true);
+            default -> noneRadio.setSelected(true);
+        }
 
         JPanel mediaPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         mediaPanel.add(noneRadio);
@@ -53,17 +66,30 @@ public final class ExportXmlDialog extends BaseDialog<ExportXmlData> {
         lineSepGroup.add(windowsRadio);
         lineSepGroup.add(linuxRadio);
 
-        String lineSeparator = prefs.get("lineSeparator", "windows");
-        if (lineSeparator.equals("windows")) {
-            windowsRadio.setSelected(true);
-        } else {
+        if (v.isLinuxLineSeparator()) {
             linuxRadio.setSelected(true);
+        } else {
+            windowsRadio.setSelected(true);
         }
 
         JPanel lineSepPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         lineSepPanel.add(windowsRadio);
         lineSepPanel.add(linuxRadio);
-        addRow("图片音频", lineSepPanel);
+        addRow("换行符", lineSepPanel);
+
+        ButtonGroup versionGroup = new ButtonGroup();
+        versionGroup.add(defaultRadio);
+        versionGroup.add(v125Radio);
+        if ("V125".equals(v.getExportVersion())) {
+            v125Radio.setSelected(true);
+        } else {
+            defaultRadio.setSelected(true);
+        }
+
+        JPanel versionPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        versionPanel.add(defaultRadio);
+        versionPanel.add(v125Radio);
+        addRow("导出版本", versionPanel);
 
         addRow("导出路径", pathField, selectBtn);
     }
@@ -90,14 +116,19 @@ public final class ExportXmlDialog extends BaseDialog<ExportXmlData> {
             meType = MediaExportType.FILE;
         }
 
-        boolean linux = false;
-        if (windowsRadio.isSelected()) {
-            prefs.put("lineSeparator", "windows");
-        } else {
-            prefs.put("lineSeparator", "linux");
-            linux = true;
-        }
-        return new ExportXmlData(indent, meType, pathField.getText(), linux);
+        boolean linux = linuxRadio.isSelected();
+
+        ExportVersion version = v125Radio.isSelected() ? ExportVersion.V125 : ExportVersion.DEFAULT;
+
+        Values current = new Values();
+        current.setIndent(indent);
+        current.setMedia(meType);
+        current.setLinuxLineSeparator(linux);
+        current.setExportVersion(version == ExportVersion.V125 ? "V125" : "DEFAULT");
+        current.setExportPath(pathField.getText().trim());
+        ExportXmlConfigIni.saveIfChanged(initialConfig, current);
+
+        return new ExportXmlData(indent, meType, pathField.getText(), linux, version);
     }
 
 }

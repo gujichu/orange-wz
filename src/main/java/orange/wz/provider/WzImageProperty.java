@@ -240,6 +240,17 @@ public abstract class WzImageProperty extends WzObject {
                     canvasProp.initPngProperty(name, canvasProp, wzImage, reader);
                     yield canvasProp;
                 }
+                case WzExtendedType.CANVAS_VIDEO -> {
+                    WzVideoProperty videoProp = new WzVideoProperty(name, parent, wzImage);
+                    reader.skip(1);
+                    if (reader.getByte() == 1) {
+                        reader.skip(2);
+                        videoProp.addChildren(WzImageProperty.parsePropertyList(offset, reader, videoProp));
+                    }
+                    // C#：type(byte) + length(compressed int) + bytes
+                    videoProp.parse(reader, false);
+                    yield videoProp;
+                }
                 case WzExtendedType.VECTOR -> {
                     int x = reader.readCompressedInt();
                     int y = reader.readCompressedInt();

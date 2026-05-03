@@ -20,6 +20,10 @@ public class WzCanvasProperty extends WzExtended {
         png = new WzPngProperty(name, format, scale, imageBytes, this, wzImage);
     }
 
+    public WzCanvasProperty(String name, int width, int height, int format, int scale, byte[] imageBytes, WzObject parent, WzImage wzImage) {
+        this(name, parent, wzImage);
+        png = new WzPngProperty(name, width, height, format, scale, imageBytes, this, wzImage);
+    }
     // Png -------------------------------------------------------------------------------------------------------------
     public byte[] getImageBytes(boolean saveInMem) {
         return png.getImageBytes(saveInMem);
@@ -56,6 +60,32 @@ public class WzCanvasProperty extends WzExtended {
 
     public void setPng(BufferedImage pngImage, WzPngFormat format, int scale) {
         png.setImage(pngImage, format, scale);
+        wzImage.setChanged(true);
+        setTempChanged(true);
+    }
+
+    public WzPngProperty.CompressedPngData exportCompressedPngData() {
+        return png.exportCompressedData();
+    }
+
+    public void copyPngFrom(WzCanvasProperty src, boolean keepImageInMem) {
+        if (src == null) {
+            throw new IllegalArgumentException("来源Canvas不能为空");
+        }
+        WzPngProperty.CompressedPngData data = src.exportCompressedPngData();
+        if (data == null) {
+            throw new IllegalStateException("来源Canvas压缩数据为空");
+        }
+        png.copyCompressedFrom(data, keepImageInMem);
+        wzImage.setChanged(true);
+        setTempChanged(true);
+    }
+
+    public void copyPngFromCompressedData(WzPngProperty.CompressedPngData data, boolean keepImageInMem) {
+        if (data == null) {
+            throw new IllegalArgumentException("来源压缩数据不能为空");
+        }
+        png.copyCompressedFrom(data, keepImageInMem);
         wzImage.setChanged(true);
         setTempChanged(true);
     }

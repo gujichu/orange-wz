@@ -23,6 +23,11 @@ public class ShortForm extends AbstractValueForm {
     }
 
     @Override
+    protected boolean isPropertyMeaningLookupEnabled() {
+        return true;
+    }
+
+    @Override
     public ShortFormData getData() {
         short value;
         try {

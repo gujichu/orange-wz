@@ -49,6 +49,7 @@ public final class WzFileMenu extends JPopupMenu {
         JMenuItem reloadBtn = new JMenuItem("重载", AiOutlineReloadIcon);
         JMenuItem moveBtn = new JMenuItem("转移视图", AiOutlineEye);
         pasteBtn = new JMenuItem("粘贴", MdOutlineContentPaste);
+        JMenuItem duplicateSiblingBtn = new JMenuItem("同节点复制");
         JMenuItem keyBtn = new JMenuItem("修改密钥", AiOutlineKey);
         JMenu exportBtn = new JMenu("导出");
         JMenuItem exportImgBtn = new JMenuItem("Img");
@@ -73,6 +74,7 @@ public final class WzFileMenu extends JPopupMenu {
         reloadBtnAction(reloadBtn);
         moveBtnAction(moveBtn);
         pasteBtn.addActionListener(e -> editPane.doPaste());
+        duplicateSiblingBtn.addActionListener(e -> editPane.doDuplicateSibling());
         addKeyBtnAction(keyBtn);
         addExportImgBtnAction(exportImgBtn);
         addExportXmlBtnAction(exportXmlBtn);
@@ -89,6 +91,7 @@ public final class WzFileMenu extends JPopupMenu {
         add(reloadBtn);
         add(moveBtn);
         add(pasteBtn);
+        add(duplicateSiblingBtn);
         add(keyBtn);
         add(exportBtn);
         add(importBtn);

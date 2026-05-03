@@ -1,6 +1,7 @@
 package orange.wz.provider.tools;
 
 import lombok.extern.slf4j.Slf4j;
+import orange.wz.gui.component.form.data.ExportXmlData.ExportVersion;
 import orange.wz.provider.WzImage;
 import orange.wz.provider.WzImageProperty;
 import orange.wz.provider.WzXmlFile;
@@ -29,16 +30,18 @@ public final class XmlExport {
     private final int indent;
     private final boolean linux;
     private final MediaExportType meType;
+    private final ExportVersion version;
 
     private BufferedWriter writer;
     private Path mediaFolder;
     private int curIndent = 0;
 
-    public XmlExport(WzImage image, int indent, boolean linux, MediaExportType meType) {
+    public XmlExport(WzImage image, int indent, boolean linux, MediaExportType meType, ExportVersion version) {
         this.image = image;
         this.indent = indent;
         this.linux = linux;
         this.meType = meType;
+        this.version = version;
     }
 
     private void writeLineSeparator() throws IOException {
@@ -77,8 +80,13 @@ public final class XmlExport {
             writer.write("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
             writeLineSeparator();
 
-
-            writer.write("<imgdir name=\"" + imgName + "\" indent=\"" + indent + "\" media=\"" + meType.name() + "\">");
+            String rootTag;
+            if (version == ExportVersion.V125) {
+                rootTag = "<imgdir name=\"" + imgName + "\">";
+            } else {
+                rootTag = "<imgdir name=\"" + imgName + "\" indent=\"" + indent + "\" media=\"" + meType.name() + "\">";
+            }
+            writer.write(rootTag);
             writeLineSeparator();
             curIndent++;
             image.getChildren().forEach(prop -> writeProp(prop, ""));
@@ -98,9 +106,16 @@ public final class XmlExport {
             switch (property) {
                 case WzCanvasProperty prop -> {
                     String etName = escapeText(prop.getName());
-                    String format = String.valueOf(prop.getFormat().getValue());
-                    String scale = String.valueOf(prop.getScale());
-                    String context = "<canvas name=\"" + etName + "\" format=\"" + format + "\" scale=\"" + scale + "\"";
+                    String width = String.valueOf(prop.getWidth());
+                    String height = String.valueOf(prop.getHeight());
+                    String context;
+                    if (version == ExportVersion.V125) {
+                        context = "<canvas name=\"" + etName + "\" width=\"" + width + "\" height=\"" + height + "\"";
+                    } else {
+                        String format = String.valueOf(prop.getFormat().getValue());
+                        String scale = String.valueOf(prop.getScale());
+                        context = "<canvas name=\"" + etName + "\" width=\"" + width + "\" height=\"" + height + "\" format=\"" + format + "\" scale=\"" + scale + "\"";
+                    }
 
                     if (meType == MediaExportType.BASE64)
                         context = context + " basedata=\"" + Base64Tool.coverBytesToBase64(prop.getImageBytes(false)) + "\"";
@@ -160,7 +175,11 @@ public final class XmlExport {
                     writer.write("<imgdir name=\"" + escapeText(prop.getName()) + "\"");
                     List<WzImageProperty> children = prop.getChildren();
                     if (children.isEmpty()) {
-                        writer.write("/>");
+                        if (version == ExportVersion.V125) {
+                            writer.write("></imgdir>");
+                        } else {
+                            writer.write("/>");
+                        }
                         writeLineSeparator();
                     } else {
                         writer.write(">");

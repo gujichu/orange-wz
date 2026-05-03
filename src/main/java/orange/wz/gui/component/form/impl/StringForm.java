@@ -60,6 +60,11 @@ public class StringForm extends AbstractValueForm {
     }
 
     @Override
+    protected boolean isPropertyMeaningLookupEnabled() {
+        return true;
+    }
+
+    @Override
     public StringFormData getData() {
         return new StringFormData(
                 nameInput.getText(),
