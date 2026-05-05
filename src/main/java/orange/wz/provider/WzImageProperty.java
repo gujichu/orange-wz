@@ -95,6 +95,20 @@ public abstract class WzImageProperty extends WzObject {
         return count;
     }
 
+    /** 统计子树中与 {@code name} 完全同名的节点数量（与 {@link #removeAllChildWithName} 规则一致）。 */
+    public int countAllChildWithName(String name) {
+        if (children == null) return 0;
+        int count = 0;
+        for (WzImageProperty child : children.get()) {
+            if (child.getName().equals(name)) {
+                count += 1;
+            } else {
+                count += child.countAllChildWithName(name);
+            }
+        }
+        return count;
+    }
+
     public void replaceChildrenList(List<WzImageProperty> children) {
         if (children == null) return;
         this.children.clear();

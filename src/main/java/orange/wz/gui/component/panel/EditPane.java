@@ -2977,36 +2977,233 @@ public final class EditPane extends JSplitPane {
         TreePath[] selectedPaths = tree.getSelectionPaths();
         if (selectedPaths == null) return;
 
-        NodeDialog dialog = new NodeDialog("批量删除节点", "节点名称", this);
-        NodeFormData data = dialog.getData();
+        BatchDeleteNodeDialog dialog = new BatchDeleteNodeDialog(this);
+        BatchDeleteNodeFormData data = dialog.getData();
         if (data == null) return;
 
+        boolean parityMode = data.isParityMode();
         String name = data.getName();
-        int count = 0;
+        if (!parityMode && name.isEmpty()) {
+            JMessageUtil.warn(this, "操作提示", "请填写节点名称，或至少勾选奇数/偶数之一。");
+            return;
+        }
+
+        int previewCount = 0;
         for (TreePath path : selectedPaths) {
             DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
             WzObject wzObj = (WzObject) node.getUserObject();
-            int current = 0;
-            if (wzObj instanceof WzImage image) {
-                if (!image.parse()) {
-                    MainFrame.getInstance().setStatusText("由于 %s 解析失败，操作中断，已经删除了 %d 个节点", image.getName(), count);
-                    return;
-                }
-                current = image.removeAllChildWithName(name);
-            } else if (wzObj instanceof WzImageProperty prop) {
-                current = prop.removeAllChildWithName(name);
-            }
-
-            if (current > 0) {
-                DefaultMutableTreeNode pNode = (DefaultMutableTreeNode) node.getParent();
-                int index = pNode.getIndex(node);
-                removeNodeFromTree(node);
-                insertNodeToTree(pNode, wzObj, true, index);
-                count += current;
+            if (parityMode) {
+                previewCount += countParityDirectChildrenPreview(wzObj, data.isDeleteOdd(), data.isDeleteEven());
+            } else {
+                previewCount += countNameSubtreePreview(wzObj, name);
             }
         }
 
-        MainFrame.getInstance().setStatusText("总共删除了 %d 个节点", count);
+        if (previewCount == 0) {
+            JMessageUtil.warn(this, "操作提示", "没有符合条件的节点将被删除。");
+            return;
+        }
+
+        int confirm = JOptionPane.showConfirmDialog(
+                this,
+                String.format("共有 %d 个节点将被删除，是否确认？", previewCount),
+                "确认删除",
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.WARNING_MESSAGE
+        );
+        if (confirm != JOptionPane.YES_OPTION) {
+            return;
+        }
+
+        int success = 0;
+        int failed = 0;
+
+        for (TreePath path : selectedPaths) {
+            DefaultMutableTreeNode node = (DefaultMutableTreeNode) path.getLastPathComponent();
+            WzObject wzObj = (WzObject) node.getUserObject();
+
+            if (parityMode) {
+                ParityBatchDeleteResult r = deleteParityDirectChildren(wzObj, data.isDeleteOdd(), data.isDeleteEven());
+                success += r.success;
+                failed += r.failed;
+                if (r.refreshTree) {
+                    refreshBatchDeleteTreeNode(node, wzObj);
+                }
+            } else if (wzObj instanceof WzImage image) {
+                if (!image.parse()) {
+                    log.error("批量删除：图片 {} 解析失败，无法按名称「{}」删除", image.getName(), name);
+                    MainFrame.getInstance().setStatusText("由于 %s 解析失败，已跳过该节点的按名称删除", image.getName());
+                    continue;
+                }
+                int expected = image.countAllChildWithName(name);
+                int removed = image.removeAllChildWithName(name);
+                success += removed;
+                if (removed < expected) {
+                    int miss = expected - removed;
+                    failed += miss;
+                    log.warn("批量删除：图片「{}」按名称「{}」预期删除 {} 个，实际 {} 个，差额 {}",
+                            image.getName(), name, expected, removed, miss);
+                }
+                if (removed > 0) {
+                    refreshBatchDeleteTreeNode(node, wzObj);
+                }
+            } else if (wzObj instanceof WzImageProperty prop) {
+                int expected = prop.countAllChildWithName(name);
+                int removed = prop.removeAllChildWithName(name);
+                success += removed;
+                if (removed < expected) {
+                    int miss = expected - removed;
+                    failed += miss;
+                    log.warn("批量删除：属性「{}」按名称「{}」预期删除 {} 个，实际 {} 个，差额 {}",
+                            prop.getName(), name, expected, removed, miss);
+                }
+                if (removed > 0) {
+                    refreshBatchDeleteTreeNode(node, wzObj);
+                }
+            }
+        }
+
+        MainFrame.getInstance().setStatusText("批量删除完成：成功 %d 个，失败 %d 个", success, failed);
+        JMessageUtil.info(this, "批量删除", String.format("删除成功 %d 个节点，失败 %d 个。", success, failed));
+    }
+
+    private void refreshBatchDeleteTreeNode(DefaultMutableTreeNode node, WzObject wzObj) {
+        DefaultMutableTreeNode pNode = (DefaultMutableTreeNode) node.getParent();
+        int index = pNode.getIndex(node);
+        removeNodeFromTree(node);
+        insertNodeToTree(pNode, wzObj, true, index);
+    }
+
+    private static int countNameSubtreePreview(WzObject wzObj, String name) {
+        if (wzObj instanceof WzImage image) {
+            if (!image.parse()) {
+                return 0;
+            }
+            return image.countAllChildWithName(name);
+        }
+        if (wzObj instanceof WzImageProperty prop) {
+            return prop.countAllChildWithName(name);
+        }
+        return 0;
+    }
+
+    private static int countParityDirectChildrenPreview(WzObject wzObj, boolean deleteOdd, boolean deleteEven) {
+        return listParityDirectChildNames(wzObj, deleteOdd, deleteEven).size();
+    }
+
+    private static List<WzImageProperty> listDirectChildrenForBatchDelete(WzObject wzObj) {
+        if (wzObj instanceof WzImage image) {
+            if (!image.parse()) {
+                return Collections.emptyList();
+            }
+            return image.getChildren();
+        }
+        if (wzObj instanceof WzImageProperty prop && prop.isListProperty()) {
+            return prop.getChildren();
+        }
+        return Collections.emptyList();
+    }
+
+    private static List<String> listParityDirectChildNames(WzObject wzObj, boolean deleteOdd, boolean deleteEven) {
+        List<WzImageProperty> direct = listDirectChildrenForBatchDelete(wzObj);
+        if (direct.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<String> out = new ArrayList<>();
+        for (WzImageProperty child : direct) {
+            String nm = child.getName();
+            parseIntegralChildName(nm).ifPresent(n -> {
+                if (matchesNumericParity(n, deleteOdd, deleteEven)) {
+                    out.add(nm);
+                }
+            });
+        }
+        return out;
+    }
+
+    private static Optional<Long> parseIntegralChildName(String raw) {
+        if (raw == null) {
+            return Optional.empty();
+        }
+        String s = raw.trim();
+        if (s.isEmpty()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(Long.parseLong(s));
+        } catch (NumberFormatException e) {
+            return Optional.empty();
+        }
+    }
+
+    private static boolean matchesNumericParity(long n, boolean deleteOdd, boolean deleteEven) {
+        boolean odd = (n & 1L) != 0;
+        if (deleteOdd && deleteEven) {
+            return true;
+        }
+        if (deleteOdd && odd) {
+            return true;
+        }
+        return deleteEven && !odd;
+    }
+
+    private ParityBatchDeleteResult deleteParityDirectChildren(WzObject wzObj, boolean deleteOdd, boolean deleteEven) {
+        List<String> names = listParityDirectChildNames(wzObj, deleteOdd, deleteEven);
+        if (names.isEmpty()) {
+            return new ParityBatchDeleteResult(0, 0, false);
+        }
+        int ok = 0;
+        int fail = 0;
+        if (wzObj instanceof WzImage image) {
+            if (!image.parse()) {
+                log.error("批量删除（奇偶）：图片 {} 解析失败，无法删除匹配的数字名子节点（共 {} 个待删）", image.getName(), names.size());
+                return new ParityBatchDeleteResult(0, names.size(), false);
+            }
+            for (String childName : names) {
+                try {
+                    if (image.removeChild(childName)) {
+                        ok++;
+                    } else {
+                        fail++;
+                        log.warn("批量删除（奇偶）：图片「{}」下子节点「{}」删除失败：removeChild 返回 false", image.getName(), childName);
+                    }
+                } catch (Exception ex) {
+                    fail++;
+                    log.error("批量删除（奇偶）：图片「{}」下子节点「{}」删除异常", image.getName(), childName, ex);
+                }
+            }
+            return new ParityBatchDeleteResult(ok, fail, ok > 0);
+        }
+        if (wzObj instanceof WzImageProperty prop && prop.isListProperty()) {
+            for (String childName : names) {
+                try {
+                    if (prop.removeChild(childName)) {
+                        ok++;
+                    } else {
+                        fail++;
+                        log.warn("批量删除（奇偶）：节点「{}」下子节点「{}」删除失败：removeChild 返回 false", prop.getName(), childName);
+                    }
+                } catch (Exception ex) {
+                    fail++;
+                    log.error("批量删除（奇偶）：节点「{}」下子节点「{}」删除异常", prop.getName(), childName, ex);
+                }
+            }
+            return new ParityBatchDeleteResult(ok, fail, ok > 0);
+        }
+        log.warn("批量删除（奇偶）：节点类型不支持（非图片或非列表属性），跳过 {} 个待删子节点", names.size());
+        return new ParityBatchDeleteResult(0, names.size(), false);
+    }
+
+    private static final class ParityBatchDeleteResult {
+        final int success;
+        final int failed;
+        final boolean refreshTree;
+
+        ParityBatchDeleteResult(int success, int failed, boolean refreshTree) {
+            this.success = success;
+            this.failed = failed;
+            this.refreshTree = refreshTree;
+        }
     }
 
     /**
