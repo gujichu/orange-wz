@@ -72,7 +72,8 @@ public final class StrongCompressDialog {
                 return this;
             }
         });
-        JLabel quantHint = new JLabel("libimagequant：解码→ARGB8888→调色板量化→按目标格式写回；需在 lib 目录放置 libimagequant-java 官方 jar（AGPL）");
+        JLabel quantHint = new JLabel(
+                "libimagequant：解码→ARGB8888→调色板量化→按目标格式写回；随工程打包 org.pngquant JNI 与 resources/libimagequant 原生库，无需 vendor 子仓库");
         quantHint.setFont(quantHint.getFont().deriveFont(Font.PLAIN, quantHint.getFont().getSize() - 1f));
 
         JSpinner liqColorsSpinner = new JSpinner(new SpinnerNumberModel(256, 2, 256, 1));
