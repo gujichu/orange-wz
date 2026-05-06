@@ -27,8 +27,7 @@ public class WzVideoProperty extends WzExtended {
     private byte[] bytes;
 
     public WzVideoProperty(String name, WzObject parent, WzImage wzImage) {
-        // 复用 RAW_DATA_PROPERTY 的类型与 UI 展示（当前项目暂无 Video 专用类型/表单）
-        super(name, WzType.RAW_DATA_PROPERTY, parent, wzImage);
+        super(name, WzType.VIDEO_PROPERTY, parent, wzImage);
     }
 
     public void parse(BinaryReader reader, boolean parseNow) {

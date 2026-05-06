@@ -1,21 +1,36 @@
 package orange.wz.gui.component.panel;
 
 import lombok.Getter;
-import lombok.Setter;
 
 import javax.swing.*;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 
-@Setter
 @Getter
 public class ImagePanel extends JPanel {
-    private double zoomFactor = 1.0; // 当前缩放比例
+    private double zoomFactor = 1.0;
     private BufferedImage image;
+
+    public void setZoomFactor(double zoomFactor) {
+        this.zoomFactor = zoomFactor;
+        revalidate();
+        repaint();
+    }
 
     public void setImage(BufferedImage image) {
         this.image = image;
+        revalidate();
         repaint();
+    }
+
+    @Override
+    public Dimension getPreferredSize() {
+        if (image == null) {
+            return new Dimension(320, 240);
+        }
+        int w = Math.max(1, (int) Math.ceil(image.getWidth() * zoomFactor));
+        int h = Math.max(1, (int) Math.ceil(image.getHeight() * zoomFactor));
+        return new Dimension(w, h);
     }
 
     @Override

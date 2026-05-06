@@ -21,4 +21,6 @@ public enum WzType {
     STRING_PROPERTY,
     UOL_PROPERTY,
     VECTOR_PROPERTY,
+    /** Canvas#Video（KMST v1181+） */
+    VIDEO_PROPERTY,
 }

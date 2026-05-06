@@ -315,9 +315,31 @@ public class MainFrame extends JFrame {
      * @param total   总量
      */
     public void updateProgress(int current, int total) {
-        int percent = (int) ((double) current / total * 100);
+        if (progressBar == null) {
+            return;
+        }
+        if (total <= 0) {
+            progressBar.setValue(0);
+            progressBar.setIndeterminate(false);
+            progressBar.setString(current + "/—");
+            return;
+        }
+        int percent = (int) Math.min(100, Math.round((double) current / total * 100.0));
+        progressBar.setIndeterminate(false);
         progressBar.setValue(percent);
         progressBar.setString(current + "/" + total);
+    }
+
+    /**
+     * 结束长时间任务后重置左下角进度条。
+     */
+    public void resetProgressBar() {
+        if (progressBar == null) {
+            return;
+        }
+        progressBar.setIndeterminate(false);
+        progressBar.setValue(0);
+        progressBar.setString("");
     }
 
     /**

@@ -1,0 +1,14 @@
+<svg width="120" height="120"
+     viewBox="0 0 120 120"
+     xmlns="http://www.w3.org/2000/svg">
+
+    <text x="60" y="88"
+          text-anchor="middle"
+          font-family="Arial, Helvetica, sans-serif"
+          font-size="46"
+          font-weight="bold"
+          fill="#1565C0">
+        VID
+    </text>
+
+</svg>

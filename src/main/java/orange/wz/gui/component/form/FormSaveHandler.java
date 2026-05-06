@@ -19,6 +19,7 @@ public class FormSaveHandler {
 
         boolean res = switch (wzObject.getType()) {
             case FOLDER, WZ_FILE, PNG_PROPERTY, RAW_DATA_PROPERTY -> false;
+            case VIDEO_PROPERTY -> changeVideo((WzVideoProperty) wzObject, editPane);
             case DIRECTORY -> changeDir((WzDirectory) wzObject, editPane);
             case IMAGE -> changeImg((WzImage) wzObject, editPane);
             case CANVAS_PROPERTY -> changeCanvas((WzCanvasProperty) wzObject, editPane);
@@ -69,6 +70,17 @@ public class FormSaveHandler {
             return false;
         }
         directory.setTempChanged(true);
+        return true;
+    }
+
+    private static boolean changeVideo(WzVideoProperty property, EditPane editPane) {
+        VideoFormData data = editPane.getVideoForm().getData();
+        if (!property.getName().equals(data.getName()) && !property.setName(data.getName())) {
+            JMessageUtil.error("存在同名节点，保存失败");
+            return false;
+        }
+        property.getWzImage().setChanged(true);
+        property.setTempChanged(true);
         return true;
     }
 
@@ -250,6 +262,8 @@ public class FormSaveHandler {
             data = editPane.getUolCanvasForm().getUolData();
         } else if (target instanceof WzSoundProperty) {
             data = editPane.getUolSoundForm().getUolData();
+        } else if (target instanceof WzVideoProperty) {
+            data = editPane.getUolVideoForm().getUolData();
         }
 
         if (data == null) return false;

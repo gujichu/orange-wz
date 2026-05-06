@@ -76,8 +76,10 @@ public final class EditPane extends JSplitPane {
             Map.entry("string", new StringForm()),
             Map.entry("uolCanvas", new UolCanvasForm(this)),
             Map.entry("uolSound", new UolSoundForm()),
+            Map.entry("uolVideo", new UolVideoForm()),
             Map.entry("vector", new VectorForm()),
-            Map.entry("lua", new LuaForm())
+            Map.entry("lua", new LuaForm()),
+            Map.entry("video", new VideoForm())
     );
 
     private final SearchDialog searchDialog = new SearchDialog("搜索", this);
@@ -131,12 +133,20 @@ public final class EditPane extends JSplitPane {
         return (UolSoundForm) nodeForms.get("uolSound");
     }
 
+    public UolVideoForm getUolVideoForm() {
+        return (UolVideoForm) nodeForms.get("uolVideo");
+    }
+
     public VectorForm getVectorForm() {
         return (VectorForm) nodeForms.get("vector");
     }
 
     public LuaForm getLuaForm() {
         return (LuaForm) nodeForms.get("lua");
+    }
+
+    public VideoForm getVideoForm() {
+        return (VideoForm) nodeForms.get("video");
     }
 
     public EditPane(boolean oneTouchExpandable) {
@@ -206,6 +216,7 @@ public final class EditPane extends JSplitPane {
                         case UOL_PROPERTY -> UolIcon;
                         case VECTOR_PROPERTY -> VectorIcon;
                         case LUA_PROPERTY -> LuaIcon;
+                        case VIDEO_PROPERTY -> VidIcon;
                         case WZ_FILE, PNG_PROPERTY -> null;
                     };
                     setIcon(icon);
@@ -450,6 +461,10 @@ public final class EditPane extends JSplitPane {
                 getSoundForm().setData(obj.getName(), WzType.SOUND_PROPERTY.name(), obj.getSoundBytes(), obj.getLenMs(), wzObject, this);
                 switchForm("sound");
             }
+            case WzVideoProperty obj -> {
+                getVideoForm().setData(obj.getName(), WzType.VIDEO_PROPERTY.name(), obj, this);
+                switchForm("video");
+            }
             case WzStringProperty obj -> {
                 getStringForm().setData(obj.getName(), WzType.STRING_PROPERTY.name(), obj.getValue(), wzObject, this);
                 switchForm("string");
@@ -466,6 +481,12 @@ public final class EditPane extends JSplitPane {
                 } else if (target instanceof WzSoundProperty sound) {
                     getUolSoundForm().setData(obj.getName(), WzType.UOL_PROPERTY.name(), obj.getValue(), sound, wzObject, this);
                     switchForm("uolSound");
+                } else if (target instanceof WzVideoProperty vid) {
+                    getUolVideoForm().setData(obj.getName(), WzType.UOL_PROPERTY.name(), obj.getValue(), vid, wzObject, this);
+                    switchForm("uolVideo");
+                } else {
+                    getNodeForm().setData(obj.getName(), WzType.UOL_PROPERTY.name(), wzObject, this);
+                    switchForm("node");
                 }
             }
             case WzVectorProperty obj -> {

@@ -27,7 +27,7 @@ public abstract class WzImageProperty extends WzObject {
 
         this.children = switch (type) {
             case FOLDER, WZ_FILE, DIRECTORY, IMAGE -> throw new RuntimeException("不可使用的属性: " + type);
-            case CANVAS_PROPERTY, CONVEX_PROPERTY, LIST_PROPERTY, RAW_DATA_PROPERTY -> new WzChildrenProperty();
+            case CANVAS_PROPERTY, CONVEX_PROPERTY, LIST_PROPERTY, RAW_DATA_PROPERTY, VIDEO_PROPERTY -> new WzChildrenProperty();
             case DOUBLE_PROPERTY, FLOAT_PROPERTY, INT_PROPERTY, LONG_PROPERTY, LUA_PROPERTY, NULL_PROPERTY,
                  PNG_PROPERTY, SHORT_PROPERTY, SOUND_PROPERTY, STRING_PROPERTY, UOL_PROPERTY, VECTOR_PROPERTY -> null;
         };

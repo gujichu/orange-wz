@@ -18,6 +18,8 @@ public final class Icons {
     public static final FlatSVGIcon ListIcon = getSVG("LIST.svg", 16, 16);
     public static final FlatSVGIcon StrIcon = getSVG("STR.svg", 16, 16);
     public static final FlatSVGIcon PngIcon = getSVG("PNG.svg", 16, 16);
+    /** Canvas#Video */
+    public static final FlatSVGIcon VidIcon = getSVG("VID.svg", 16, 16);
     public static final FlatSVGIcon IntIcon = getSVG("INT.svg", 16, 16);
     public static final FlatSVGIcon DoubleIcon = getSVG("DOUBLE.svg", 16, 16);
     public static final FlatSVGIcon FloatIcon = getSVG("FLOAT.svg", 16, 16);
