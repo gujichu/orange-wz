@@ -589,7 +589,12 @@ public final class CanvasUtil {
                                         }
                                     }
                                     synchronized (p.canvas()) {
-                                        p.canvas().setPng(img, targetFormat, pngScale, zlibLevel, zlibMode);
+                                        WzPngProperty.setSkipLegacySkillEffectForThisCompress(true);
+                                        try {
+                                            p.canvas().setPng(img, targetFormat, pngScale, zlibLevel, zlibMode);
+                                        } finally {
+                                            WzPngProperty.setSkipLegacySkillEffectForThisCompress(false);
+                                        }
                                         int afterLen = p.canvas().getCompressedPngStorageLength();
                                         // DXT5/BC7 等块压缩往往比 ARGB8888+zlib 更小：勾选「未变小则还原」时不应冲掉显式格式转换
                                         boolean packagingChanged = p.sourceFormat() != targetFormat || p.sourceScale() != pngScale;
@@ -603,6 +608,15 @@ public final class CanvasUtil {
                                                         p.sourceFormat(), targetFormat, p.sourceScale(), pngScale);
                                             }
                                             successApply.incrementAndGet();
+                                            boolean legacySkillEnc = false;
+                                            try {
+                                                legacySkillEnc = MainFrame.getInstance().isUseOldSkillEncryption();
+                                            } catch (Exception ignored) {
+                                            }
+                                            if (legacySkillEnc) {
+                                                p.canvas().applyLegacySkillEffectAfterStrongCompress(zlibLevel, zlibMode);
+                                                afterLen = p.canvas().getCompressedPngStorageLength();
+                                            }
                                         }
                                         p.canvas().clearImage();
                                         sumBefore.addAndGet(p.beforeSize());

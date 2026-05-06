@@ -23,6 +23,23 @@ import java.util.zip.InflaterInputStream;
 @Getter
 @Slf4j
 public class WzPngProperty extends WzImageProperty {
+
+    /**
+     * 强力压缩等流程：先按「未勾选旧版技能特效」写入节点，成功后再 {@link #applyLegacySkillEffectAfterStrongCompress}。
+     */
+    private static final ThreadLocal<Boolean> SKIP_LEGACY_SKILL_EFFECT_FOR_THIS_COMPRESS = new ThreadLocal<>();
+
+    public static void setSkipLegacySkillEffectForThisCompress(boolean skip) {
+        if (skip) {
+            SKIP_LEGACY_SKILL_EFFECT_FOR_THIS_COMPRESS.set(Boolean.TRUE);
+        } else {
+            SKIP_LEGACY_SKILL_EFFECT_FOR_THIS_COMPRESS.remove();
+        }
+    }
+
+    private static boolean isSkipLegacySkillEffectForThisCompress() {
+        return Boolean.TRUE.equals(SKIP_LEGACY_SKILL_EFFECT_FOR_THIS_COMPRESS.get());
+    }
     public static class CompressedPngData {
         private final int width;
         private final int height;
@@ -440,12 +457,30 @@ public class WzPngProperty extends WzImageProperty {
      * {@code 78 9C 00 00}，前两字节与传统 zlib 魔数相同，仅用 ushort 判断会误判为裸 zlib，
      * 把整个 blob（含 4 字节长度）交给 Inflater → {@code ZipException: incorrect header check}。
      */
-    private byte[] decodeToZlibPayload(byte[] compressedBytes, WzMutableKey wzMutableKey) {
+    /**
+     * 分块异或解密用的密钥：与 {@link #compressBytes} / {@link #wrapZlibPayloadWithLegacySkillChunks} 写入侧一致。
+     * 勾选「旧版技能特效」时用固定 WZ_MSEAIV + USER_KEY；否则用当前 Reader 的 List.wz 类密钥。
+     */
+    private static WzMutableKey xorKeyForChunkedListStyleDecode(WzMutableKey readerKey) {
+        try {
+            if (orange.wz.gui.MainFrame.getInstance().isUseOldSkillEncryption()) {
+                return new WzMutableKey(
+                        orange.wz.provider.tools.CryptoConstants.WZ_MSEAIV,
+                        orange.wz.provider.tools.CryptoConstants.USER_KEY);
+            }
+        } catch (Exception ignored) {
+        }
+        return readerKey;
+    }
+
+    /**
+     * 从 IMG 内嵌块还原 zlib payload（与 {@link #decodeToZlibPayload} 算法一致，但不改动 {@link #listWzUsed}）。
+     */
+    private byte[] peelToZlibPayload(byte[] compressedBytes, WzMutableKey wzMutableKey) {
         if (isSingleBlockXorLengthPrefix(compressedBytes)) {
             if (wzMutableKey == null) {
                 throw new RuntimeException("单块 List.wz 异或数据缺少 WzMutableKey");
             }
-            listWzUsed = true;
             int n = readIntLE(compressedBytes, 0);
             byte[] zlibBody = new byte[n];
             for (int i = 0; i < n; i++) {
@@ -456,14 +491,13 @@ public class WzPngProperty extends WzImageProperty {
 
         int header = ((compressedBytes[1] & 0xFF) << 8) | (compressedBytes[0] & 0xFF);
         if (legacyPlainZlibMagicUshort(header) || looksLikeRawZlibRfc1950(compressedBytes, 0)) {
-            listWzUsed = false;
             return compressedBytes;
         }
 
-        if (wzMutableKey == null) {
+        WzMutableKey xorKey = xorKeyForChunkedListStyleDecode(wzMutableKey);
+        if (xorKey == null) {
             throw new RuntimeException("分块异或数据缺少 WzMutableKey");
         }
-        listWzUsed = true;
         BinaryReader reader = new BinaryReader(compressedBytes);
         BinaryWriter writer = new BinaryWriter();
         while (reader.hasRemaining()) {
@@ -476,10 +510,26 @@ public class WzPngProperty extends WzImageProperty {
                         blockSize, payloadAvailable, posBefore, compressedBytes.length));
             }
             for (int i = 0; i < blockSize; i++) {
-                writer.putByte((byte) (reader.getByte() ^ wzMutableKey.get(i)));
+                writer.putByte((byte) (reader.getByte() ^ xorKey.get(i)));
             }
         }
         return writer.output();
+    }
+
+    private byte[] decodeToZlibPayload(byte[] compressedBytes, WzMutableKey wzMutableKey) {
+        if (isSingleBlockXorLengthPrefix(compressedBytes)) {
+            listWzUsed = true;
+            return peelToZlibPayload(compressedBytes, wzMutableKey);
+        }
+
+        int header = ((compressedBytes[1] & 0xFF) << 8) | (compressedBytes[0] & 0xFF);
+        if (legacyPlainZlibMagicUshort(header) || looksLikeRawZlibRfc1950(compressedBytes, 0)) {
+            listWzUsed = false;
+            return compressedBytes;
+        }
+
+        listWzUsed = true;
+        return peelToZlibPayload(compressedBytes, wzMutableKey);
     }
 
     // Decompress ------------------------------------------------------------------------------------------------------
@@ -540,10 +590,12 @@ public class WzPngProperty extends WzImageProperty {
                     throw new IllegalArgumentException(WzPngFormat.ARGB8888 + " 不支持 scale");
                 }
                 boolean useOldEnc = false;
-                try {
-                    useOldEnc = orange.wz.gui.MainFrame.getInstance().isUseOldSkillEncryption();
-                } catch (Exception e) {
-                    // ignore if MainFrame is not available
+                if (!isSkipLegacySkillEffectForThisCompress()) {
+                    try {
+                        useOldEnc = orange.wz.gui.MainFrame.getInstance().isUseOldSkillEncryption();
+                    } catch (Exception e) {
+                        // ignore if MainFrame is not available
+                    }
                 }
                 
                 if (useOldEnc) {
@@ -663,6 +715,125 @@ public class WzPngProperty extends WzImageProperty {
         return best != null ? best : zlibCompress(rawBytes, level, Deflater.DEFAULT_STRATEGY);
     }
 
+    private byte[] zlibCompressOnly(byte[] rawBytes, int zlibLevel, WzPngZlibCompressMode zlibMode) {
+        if (zlibMode.brutePickSmallest()) {
+            return zlibCompressSmallest(rawBytes, zlibLevel);
+        }
+        return zlibCompress(rawBytes, zlibLevel, zlibMode.deflaterStrategy());
+    }
+
+    /**
+     * 旧版技能分块长度（小端 int）的前若干字节不能与裸 zlib 头混淆，否则 {@link #peekListWzUsedFromBlob} 会误判。
+     */
+    private static boolean legacySkillChunkLengthPrefixMisreadAsPlainZlib(int chunkSizeLe) {
+        byte b0 = (byte) chunkSizeLe;
+        byte b1 = (byte) (chunkSizeLe >> 8);
+        byte b2 = (byte) (chunkSizeLe >> 16);
+        byte b3 = (byte) (chunkSizeLe >> 24);
+        int header16 = ((b1 & 0xFF) << 8) | (b0 & 0xFF);
+        if (legacyPlainZlibMagicUshort(header16)) {
+            return true;
+        }
+        byte[] head4 = {b0, b1, b2, b3};
+        return looksLikeRawZlibRfc1950(head4, 0);
+    }
+
+    private static int nextSafeLegacySkillChunkSize(int remaining) {
+        int n = Math.min(remaining, 65535);
+        while (n > 1 && legacySkillChunkLengthPrefixMisreadAsPlainZlib(n)) {
+            n--;
+        }
+        if (n <= 0) {
+            throw new IllegalStateException("无法选择不与 zlib 头冲突的旧版技能分块大小");
+        }
+        return n;
+    }
+
+    private byte[] wrapZlibPayloadWithLegacySkillChunks(byte[] zlibPayload) {
+        WzMutableKey oldKey = new WzMutableKey(
+                orange.wz.provider.tools.CryptoConstants.WZ_MSEAIV,
+                orange.wz.provider.tools.CryptoConstants.USER_KEY);
+        BinaryWriter writer = new BinaryWriter();
+        int remaining = zlibPayload.length;
+        int offset = 0;
+        while (remaining > 0) {
+            int chunkSize = nextSafeLegacySkillChunkSize(remaining);
+            writer.putInt(chunkSize);
+            for (int i = 0; i < chunkSize; i++) {
+                writer.putByte((byte) (zlibPayload[offset + i] ^ oldKey.get(i)));
+            }
+            remaining -= chunkSize;
+            offset += chunkSize;
+        }
+        return writer.output();
+    }
+
+    private static byte[] getRawBytesArgb8888Ordered(BufferedImage img, boolean legacyBgraOrder) {
+        int[] argb32 = ImgTool.Argb32.fromBufferedImage(img);
+        BinaryWriter writer = new BinaryWriter(false);
+        if (legacyBgraOrder) {
+            for (int v : argb32) {
+                int a = (v >>> 24) & 0xFF;
+                int r = (v >>> 16) & 0xFF;
+                int g = (v >>> 8) & 0xFF;
+                int b = v & 0xFF;
+                writer.putByte((byte) b);
+                writer.putByte((byte) g);
+                writer.putByte((byte) r);
+                writer.putByte((byte) a);
+            }
+        } else {
+            for (int v : argb32) {
+                writer.putInt(v);
+            }
+        }
+        return writer.output();
+    }
+
+    /**
+     * 在「已写入标准封装」之后，按菜单「旧版技能特效」将当前节点重新打包为 BGRA 原始字节序 + zlib + 固定密钥分块异或。
+     * 供强力压缩等流程在跳过首次旧版路径后调用。
+     */
+    public void applyLegacySkillEffectAfterStrongCompress(int zlibLevel, WzPngZlibCompressMode zlibMode) {
+        boolean legacy = false;
+        try {
+            legacy = orange.wz.gui.MainFrame.getInstance().isUseOldSkillEncryption();
+        } catch (Exception e) {
+            return;
+        }
+        if (!legacy) {
+            return;
+        }
+        if (wzImage == null || wzImage.getReader() == null) {
+            log.warn("旧版技能二次打包跳过（无 Reader） {}", getPath());
+            return;
+        }
+        WzMutableKey wzMutableKey = wzImage.getReader().getWzMutableKey();
+        byte[] stored = getCompressedBytes(true);
+        if (stored == null || stored.length == 0) {
+            return;
+        }
+        try {
+            byte[] zlibPayload;
+            if (format == WzPngFormat.ARGB8888) {
+                BufferedImage img = getImage(true);
+                if (img == null) {
+                    log.warn("旧版技能二次打包跳过（无法解码） {}", getPath());
+                    return;
+                }
+                byte[] raw = getRawBytesArgb8888Ordered(img, true);
+                zlibPayload = zlibCompressOnly(raw, zlibLevel, zlibMode);
+            } else {
+                zlibPayload = peelToZlibPayload(stored, wzMutableKey);
+            }
+            compressedBytes = wrapZlibPayloadWithLegacySkillChunks(zlibPayload);
+            applyListWzUsedFromPngHeader(compressedBytes);
+            clearImage();
+        } catch (Exception e) {
+            log.error("旧版技能特效二次打包失败（保留首次压缩结果） {}", getPath(), e);
+        }
+    }
+
     private void compressImage(int zlibLevel, WzPngZlibCompressMode zlibMode) {
         WzMutableKey wzMutableKey = wzImage.getReader().getWzMutableKey();
         width = image.getWidth();
@@ -694,30 +865,16 @@ public class WzPngProperty extends WzImageProperty {
         }
 
         boolean legacySkillEffectMode = false;
-        try {
-            legacySkillEffectMode = orange.wz.gui.MainFrame.getInstance().isUseOldSkillEncryption();
-        } catch (Exception e) {
-            // 无 GUI（如测试）时视为未勾选
+        if (!isSkipLegacySkillEffectForThisCompress()) {
+            try {
+                legacySkillEffectMode = orange.wz.gui.MainFrame.getInstance().isUseOldSkillEncryption();
+            } catch (Exception e) {
+                // 无 GUI（如测试）时视为未勾选
+            }
         }
 
         if (legacySkillEffectMode) {
-            WzMutableKey oldKey = new WzMutableKey(
-                    orange.wz.provider.tools.CryptoConstants.WZ_MSEAIV,
-                    orange.wz.provider.tools.CryptoConstants.USER_KEY);
-
-            BinaryWriter writer = new BinaryWriter();
-            int remaining = compressedBytes.length;
-            int offset = 0;
-            while (remaining > 0) {
-                int chunkSize = Math.min(remaining, 65535); // 每个块最大 65535 字节
-                writer.putInt(chunkSize);
-                for (int i = 0; i < chunkSize; i++) {
-                    writer.putByte((byte) (compressedBytes[offset + i] ^ oldKey.get(i)));
-                }
-                remaining -= chunkSize;
-                offset += chunkSize;
-            }
-            compressedBytes = writer.output();
+            compressedBytes = wrapZlibPayloadWithLegacySkillChunks(compressedBytes);
         } else if (packagingWasNexonListXor) {
             BinaryWriter writer = new BinaryWriter();
             writer.setWzMutableKey(wzMutableKey);

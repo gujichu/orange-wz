@@ -117,6 +117,13 @@ public class WzCanvasProperty extends WzExtended {
         png.clearImage();
     }
 
+    /** 强力压缩保存成功后，若勾选「旧版技能特效」则对当前 PNG 做二次打包（BGRA + 分块异或）。 */
+    public void applyLegacySkillEffectAfterStrongCompress(int zlibLevel, WzPngZlibCompressMode zlibMode) {
+        png.applyLegacySkillEffectAfterStrongCompress(zlibLevel, zlibMode);
+        wzImage.setChanged(true);
+        setTempChanged(true);
+    }
+
     /**
      * 丢弃解码后的位图及可重建的压缩字节副本（文件仍打开时用于手动内存回收）。
      */
