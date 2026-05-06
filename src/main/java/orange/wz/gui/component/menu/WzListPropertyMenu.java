@@ -745,36 +745,27 @@ public final class WzListPropertyMenu extends JPopupMenu {
             WzObject wzObject = (WzObject) node.getUserObject();
             
             String cacheKey = wzObject.getPath();
+
+            // 如果已经有缓存，**先清除**！因为用户可能编辑了节点内容，需要重新生成（含分页键 path#p*）
+            editPane.getImagePreviewCache().removePreviewGroup(cacheKey);
             
-            // 如果已经有缓存，**先清除**！因为用户可能编辑了节点内容，需要重新生成
-            boolean hadCache = editPane.getImagePreviewCache().get(cacheKey) != null;
-            if (hadCache) {
-                log.debug("清除已有缓存，重新生成预览: {}", cacheKey);
-                editPane.getImagePreviewCache().remove(cacheKey);
-            }
-            
-            // 重新收集图片
+            // 重新收集图片（子节点过多时仅加载第 0 页）
             SwingWorker<ImagePreviewData, Void> worker = new SwingWorker<>() {
                 @Override
                 protected ImagePreviewData doInBackground() {
-                    ImagePreviewData data = ImagePreviewCollector.collect(wzObject);
-                    data.setRootNode(wzObject);
-                    return data;
+                    return ImagePreviewCollector.collectPage(wzObject, 0);
                 }
                 
                 @Override
                 protected void done() {
                     try {
                         ImagePreviewData data = get();
-                        if (!data.hasContent()) {
+                        if (!data.hasContent() && !data.isPaginationActive()) {
                             JMessageUtil.warn("该节点下没有找到可预览的图片");
                             return;
                         }
-                        
-                        // 保存到缓存
-                        editPane.getImagePreviewCache().put(cacheKey, data);
-                        
-                        // 显示预览
+
+                        editPane.getImagePreviewCache().putPreview(data);
                         editPane.getNodeForm().setPreviewData(data);
                     } catch (Exception ex) {
                         log.error("图片预览失败", ex);

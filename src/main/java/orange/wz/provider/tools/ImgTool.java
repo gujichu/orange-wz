@@ -192,6 +192,104 @@ public final class ImgTool {
             return (short) ((r5 << 11) | (g6 << 5) | b5);
         }
 
+        private static int clamp255(int v) {
+            return Math.max(0, Math.min(255, v));
+        }
+
+        private static void fsAddArgb4444(int[] pix, int w, int h, int x, int y, int ea, int er, int eg, int eb, int num) {
+            if (x < 0 || x >= w || y < 0 || y >= h) {
+                return;
+            }
+            int i = y * w + x;
+            int p = pix[i];
+            int a = clamp255((p >>> 24) + (ea * num) / 16);
+            int r = clamp255(((p >>> 16) & 0xFF) + (er * num) / 16);
+            int g = clamp255(((p >>> 8) & 0xFF) + (eg * num) / 16);
+            int b = clamp255((p & 0xFF) + (eb * num) / 16);
+            pix[i] = (a << 24) | (r << 16) | (g << 8) | b;
+        }
+
+        /**
+         * Floyd–Steinberg 抖动后再做 ARGB4444 量化，减轻色带。
+         */
+        public static void floydSteinbergArgb4444(BufferedImage img) {
+            int w = img.getWidth();
+            int h = img.getHeight();
+            int[] pix = new int[w * h];
+            img.getRGB(0, 0, w, h, pix, 0, w);
+            for (int y = 0; y < h; y++) {
+                for (int x = 0; x < w; x++) {
+                    int idx = y * w + x;
+                    int p = pix[idx];
+                    int a = (p >>> 24) & 0xFF;
+                    int r = (p >>> 16) & 0xFF;
+                    int g = (p >>> 8) & 0xFF;
+                    int b = p & 0xFF;
+                    int q = fromArgb4444(toArgb4444((a << 24) | (r << 16) | (g << 8) | b));
+                    int qa = (q >>> 24) & 0xFF;
+                    int qr = (q >>> 16) & 0xFF;
+                    int qg = (q >>> 8) & 0xFF;
+                    int qb = q & 0xFF;
+                    pix[idx] = q;
+                    int ea = a - qa;
+                    int er = r - qr;
+                    int eg = g - qg;
+                    int eb = b - qb;
+                    fsAddArgb4444(pix, w, h, x + 1, y, ea, er, eg, eb, 7);
+                    fsAddArgb4444(pix, w, h, x - 1, y + 1, ea, er, eg, eb, 3);
+                    fsAddArgb4444(pix, w, h, x, y + 1, ea, er, eg, eb, 5);
+                    fsAddArgb4444(pix, w, h, x + 1, y + 1, ea, er, eg, eb, 1);
+                }
+            }
+            img.setRGB(0, 0, w, h, pix, 0, w);
+        }
+
+        private static void fsAddRgb565(int[] pix, int w, int h, int x, int y, int er, int eg, int eb, int num) {
+            if (x < 0 || x >= w || y < 0 || y >= h) {
+                return;
+            }
+            int i = y * w + x;
+            int p = pix[i];
+            int a = p & 0xFF000000;
+            int r = clamp255(((p >>> 16) & 0xFF) + (er * num) / 16);
+            int g = clamp255(((p >>> 8) & 0xFF) + (eg * num) / 16);
+            int b = clamp255((p & 0xFF) + (eb * num) / 16);
+            pix[i] = a | (r << 16) | (g << 8) | b;
+        }
+
+        /**
+         * RGB565 量化前的 Floyd–Steinberg 抖动；保留原始 Alpha。
+         */
+        public static void floydSteinbergRgb565(BufferedImage img) {
+            int w = img.getWidth();
+            int h = img.getHeight();
+            int[] pix = new int[w * h];
+            img.getRGB(0, 0, w, h, pix, 0, w);
+            for (int y = 0; y < h; y++) {
+                for (int x = 0; x < w; x++) {
+                    int idx = y * w + x;
+                    int p = pix[idx];
+                    int a = p & 0xFF000000;
+                    int r = (p >>> 16) & 0xFF;
+                    int g = (p >>> 8) & 0xFF;
+                    int b = p & 0xFF;
+                    int q = fromRgb565(toRgb565((0xFF << 24) | (r << 16) | (g << 8) | b));
+                    int qr = (q >>> 16) & 0xFF;
+                    int qg = (q >>> 8) & 0xFF;
+                    int qb = q & 0xFF;
+                    pix[idx] = a | (qr << 16) | (qg << 8) | qb;
+                    int er = r - qr;
+                    int eg = g - qg;
+                    int eb = b - qb;
+                    fsAddRgb565(pix, w, h, x + 1, y, er, eg, eb, 7);
+                    fsAddRgb565(pix, w, h, x - 1, y + 1, er, eg, eb, 3);
+                    fsAddRgb565(pix, w, h, x, y + 1, er, eg, eb, 5);
+                    fsAddRgb565(pix, w, h, x + 1, y + 1, er, eg, eb, 1);
+                }
+            }
+            img.setRGB(0, 0, w, h, pix, 0, w);
+        }
+
         // DXT3 / DXT5
         public static int[] fromDXT3(BinaryReader reader, int width, int height) {
             byte[] alphaTable = new byte[16];

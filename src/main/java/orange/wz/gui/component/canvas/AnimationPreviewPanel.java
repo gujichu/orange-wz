@@ -243,7 +243,11 @@ public class AnimationPreviewPanel extends BasePreviewPanel {
         if (player != null) {
             player.dispose();
         }
-        // 清理对齐后的图片缓存
+        for (BufferedImage img : alignedImageCache.values()) {
+            if (img != null) {
+                img.flush();
+            }
+        }
         alignedImageCache.clear();
     }
 }

@@ -67,6 +67,67 @@ public class ImagePreviewCache {
     }
 
     /**
+     * 读取节点预览：先精确 path，再尝试分页第一页 path#p0
+     */
+    public ImagePreviewData getPreviewForNodePath(String path) {
+        ImagePreviewData d = get(path);
+        if (d != null) {
+            return d;
+        }
+        return get(path + "#p0");
+    }
+
+    /**
+     * 按 {@link ImagePreviewData#buildCacheKey()} 写入
+     */
+    public void putPreview(ImagePreviewData data) {
+        if (data == null || data.getRootNode() == null) {
+            return;
+        }
+        put(data.buildCacheKey(), data);
+    }
+
+    /**
+     * 移除某节点预览（含 path#p* 分页条目）
+     */
+    public void removePreviewGroup(String basePath) {
+        List<String> keysToRemove = new ArrayList<>();
+        for (String key : cache.keySet()) {
+            if (key.equals(basePath) || key.startsWith(basePath + "#p")) {
+                keysToRemove.add(key);
+            }
+        }
+        for (String key : keysToRemove) {
+            cache.remove(key);
+        }
+    }
+
+    /**
+     * 分页预览专用：只保留当前页的预览数据，移除同节点其它页及非分页键，释放动画/图片像素占用。
+     */
+    public void retainOnlyPagedPreview(String basePath, int pageIndex) {
+        String keepSuffix = String.valueOf(pageIndex);
+        String marker = basePath + "#p";
+        List<String> keysToRemove = new ArrayList<>();
+        for (String key : cache.keySet()) {
+            if (key.equals(basePath)) {
+                keysToRemove.add(key);
+                continue;
+            }
+            if (key.startsWith(marker)) {
+                String rest = key.substring(marker.length());
+                if (!rest.equals(keepSuffix)) {
+                    keysToRemove.add(key);
+                }
+            }
+        }
+        for (String key : keysToRemove) {
+            cache.remove(key);
+            log.debug("分页预览释放其它页缓存: {}", key);
+        }
+    }
+
+    /**
      * 移除指定路径前缀的所有缓存
      * 例如传入 "Skill.wz"，会移除所有 "Skill.wz/..." 开头的键
      */

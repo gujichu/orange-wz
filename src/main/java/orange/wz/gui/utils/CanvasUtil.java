@@ -8,6 +8,9 @@ import orange.wz.provider.WzImageProperty;
 import orange.wz.provider.WzObject;
 import orange.wz.provider.properties.WzCanvasProperty;
 import orange.wz.provider.properties.WzPngFormat;
+import orange.wz.provider.properties.WzPngProperty;
+import orange.wz.provider.properties.WzPngZlibCompressMode;
+import orange.wz.provider.tools.ImgTool;
 import orange.wz.provider.tools.SmartImageResizeTool;
 
 import javax.swing.*;
@@ -17,6 +20,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Slf4j
 public final class CanvasUtil {
@@ -441,6 +445,303 @@ public final class CanvasUtil {
             }
         };
         worker.execute();
+    }
+
+    private static final int STRONG_COMPRESS_BATCH = 280;
+
+    private record StrongCompressPending(WzCanvasProperty canvas,
+                                         WzPngProperty.CompressedPngData backup,
+                                         BufferedImage workImage,
+                                         long beforeSize) {
+    }
+
+    /**
+     * 强力压缩：分批单线程读取解码 + 多线程写回（与 Outlink 写入模式类似，写时 synchronized(canvas)）。
+     */
+    public static void strongCompressImages(WzObject root, StrongCompressOptions options,
+                                            List<String> excludedNames, JComponent parentComponent,
+                                            Runnable onComplete) {
+        SwingWorker<Void, Void> worker = new SwingWorker<>() {
+            @Override
+            protected Void doInBackground() {
+                List<WzCanvasProperty> all = new ArrayList<>();
+                collectAllCanvases(root, all, excludedNames);
+                if (all.isEmpty()) {
+                    SwingUtilities.invokeLater(() -> {
+                        JOptionPane.showMessageDialog(parentComponent, "当前节点下没有可处理的图片", "提示", JOptionPane.INFORMATION_MESSAGE);
+                        if (onComplete != null) {
+                            onComplete.run();
+                        }
+                    });
+                    return null;
+                }
+
+                final int totalCollected = all.size();
+
+                int threadCount = Math.max(1, Math.min(20, (int) (Runtime.getRuntime().availableProcessors() * 0.8)));
+                log.info("强力压缩开始 节点下图片数={} 线程={} 格式={} ZLIB={} 算法={} pngScale={} 抖动={} 体积未减小则还原={}",
+                        all.size(), threadCount, options.targetFormat(), options.zlibLevel(), options.zlibMode(),
+                        options.pngScale(), options.floydSteinbergDither(), options.skipIfNotSmaller());
+
+                ExecutorService writeExecutor = Executors.newFixedThreadPool(threadCount, r -> {
+                    Thread t = new Thread(r);
+                    t.setName("StrongCompress-" + t.getId());
+                    t.setDaemon(true);
+                    return t;
+                });
+
+                AtomicInteger successApply = new AtomicInteger(0);
+                AtomicInteger reverted = new AtomicInteger(0);
+                AtomicInteger skippedRead = new AtomicInteger(0);
+                AtomicInteger failed = new AtomicInteger(0);
+                AtomicLong sumBefore = new AtomicLong(0);
+                AtomicLong sumAfter = new AtomicLong(0);
+
+                try {
+                    WzPngFormat targetFormat = options.targetFormat();
+                    int pngScale = (targetFormat == WzPngFormat.ARGB4444 || targetFormat == WzPngFormat.RGB565)
+                            ? options.pngScale() : 0;
+                    int zlibLevel = options.zlibLevel();
+                    WzPngZlibCompressMode zlibMode = options.zlibMode();
+
+                    for (int start = 0, batchNo = 1; start < all.size(); start += STRONG_COMPRESS_BATCH, batchNo++) {
+                        int end = Math.min(start + STRONG_COMPRESS_BATCH, all.size());
+                        List<WzCanvasProperty> batch = all.subList(start, end);
+                        MainFrame.getInstance().setStatusTextDirect(
+                                String.format("强力压缩 读取第 %d 批 (%d 张)...", batchNo, batch.size()));
+
+                        List<StrongCompressPending> pending = new ArrayList<>(batch.size());
+                        for (WzCanvasProperty canvas : batch) {
+                            String path = canvas.getPath();
+                            try {
+                                WzPngProperty.CompressedPngData backup = canvas.exportCompressedPngData();
+                                if (backup == null || backup.getCompressedBytes() == null) {
+                                    failed.incrementAndGet();
+                                    String msg = "导出压缩数据为空";
+                                    log.warn("强力压缩 FAIL {} | {}", path, msg);
+                                    continue;
+                                }
+                                long beforeLen = backup.getCompressedBytes().length;
+                                int block = pngScale > 0 ? (1 << pngScale) : 1;
+                                if (pngScale > 0 && (canvas.getWidth() % block != 0 || canvas.getHeight() % block != 0)) {
+                                    failed.incrementAndGet();
+                                    String msg = String.format("尺寸 %dx%d 不能被块缩放 %d 整除",
+                                            canvas.getWidth(), canvas.getHeight(), block);
+                                    log.warn("强力压缩 FAIL {} | {}", path, msg);
+                                    continue;
+                                }
+
+                                BufferedImage src = canvas.getPngImage(false);
+                                if (src == null) {
+                                    src = canvas.getPngImage(true);
+                                }
+                                if (src == null) {
+                                    failed.incrementAndGet();
+                                    log.warn("强力压缩 FAIL {} | 解码为 null", path);
+                                    continue;
+                                }
+                                BufferedImage work = copyImageToArgb(src);
+                                src.flush();
+                                pending.add(new StrongCompressPending(canvas, backup, work, beforeLen));
+                            } catch (Throwable e) {
+                                if (isKnownCorruptImageError(e)) {
+                                    skippedRead.incrementAndGet();
+                                    log.warn("强力压缩 SKIP_READ {} | {}", path, shortError(e));
+                                } else {
+                                    failed.incrementAndGet();
+                                    log.error("强力压缩 FAIL {} | {}", path, shortError(e), e);
+                                }
+                            }
+                        }
+
+                        if (pending.isEmpty()) {
+                            continue;
+                        }
+
+                        List<Future<?>> futures = new ArrayList<>(pending.size());
+                        for (StrongCompressPending p : pending) {
+                            futures.add(writeExecutor.submit(() -> {
+                                BufferedImage img = p.workImage();
+                                try {
+                                    if (options.floydSteinbergDither()) {
+                                        if (targetFormat == WzPngFormat.ARGB4444) {
+                                            ImgTool.Argb32.floydSteinbergArgb4444(img);
+                                        } else if (targetFormat == WzPngFormat.RGB565) {
+                                            ImgTool.Argb32.floydSteinbergRgb565(img);
+                                        }
+                                    }
+                                    synchronized (p.canvas()) {
+                                        p.canvas().setPng(img, targetFormat, pngScale, zlibLevel, zlibMode);
+                                        int afterLen = p.canvas().getCompressedPngStorageLength();
+                                        if (options.skipIfNotSmaller() && afterLen >= p.beforeSize()) {
+                                            p.canvas().copyPngFromCompressedData(p.backup(), false);
+                                            afterLen = p.canvas().getCompressedPngStorageLength();
+                                            reverted.incrementAndGet();
+                                        } else {
+                                            successApply.incrementAndGet();
+                                        }
+                                        p.canvas().clearImage();
+                                        sumBefore.addAndGet(p.beforeSize());
+                                        sumAfter.addAndGet(afterLen);
+                                    }
+                                } catch (Throwable e) {
+                                    failed.incrementAndGet();
+                                    try {
+                                        synchronized (p.canvas()) {
+                                            p.canvas().copyPngFromCompressedData(p.backup(), false);
+                                            p.canvas().clearImage();
+                                        }
+                                    } catch (Exception restoreEx) {
+                                        log.error("强力压缩回滚失败: {}", p.canvas().getPath(), restoreEx);
+                                    }
+                                    log.error("强力压缩 FAIL {} | {}", p.canvas().getPath(), shortError(e), e);
+                                } finally {
+                                    if (img != null) {
+                                        img.flush();
+                                    }
+                                }
+                            }));
+                        }
+
+                        for (Future<?> f : futures) {
+                            try {
+                                f.get();
+                            } catch (Exception e) {
+                                failed.incrementAndGet();
+                                log.error("强力压缩任务异常", e);
+                            }
+                        }
+                        pending.clear();
+                        System.gc();
+                    }
+                } catch (Exception e) {
+                    log.error("强力压缩主流程异常", e);
+                } finally {
+                    writeExecutor.shutdown();
+                    try {
+                        if (!writeExecutor.awaitTermination(30, TimeUnit.MINUTES)) {
+                            writeExecutor.shutdownNow();
+                        }
+                    } catch (InterruptedException e) {
+                        writeExecutor.shutdownNow();
+                        Thread.currentThread().interrupt();
+                    }
+                    all.clear();
+                }
+
+                long sb = sumBefore.get();
+                long sa = sumAfter.get();
+                double ratioPct = sb > 0 ? (100.0 * (sb - sa) / sb) : 0.0;
+
+                int ok = successApply.get();
+                int rev = reverted.get();
+                int sk = skippedRead.get();
+                int fl = failed.get();
+
+                log.info("强力压缩结束 成功应用={} 还原={} 读取跳过={} 失败={} 压缩前={}B 压缩后={}B 体积变化率={}%",
+                        ok, rev, sk, fl, sb, sa, String.format("%.2f", ratioPct));
+                MainFrame.getInstance().setStatusText(
+                        "强力压缩完成 成功:%d 还原:%d 跳过:%d 失败:%d", ok, rev, sk, fl);
+
+                SwingUtilities.invokeLater(() -> {
+                    StringBuilder msg = new StringBuilder();
+                    msg.append(String.format("处理张数（收集）: %d\n", totalCollected));
+                    msg.append(String.format("成功应用新压缩: %d\n", ok));
+                    msg.append(String.format("已还原（体积未减小）: %d\n", rev));
+                    msg.append(String.format("读取阶段跳过（损坏）: %d\n", sk));
+                    msg.append(String.format("失败: %d\n\n", fl));
+                    msg.append(String.format("压缩前总大小: %,d 字节\n", sb));
+                    msg.append(String.format("压缩后总大小: %,d 字节\n", sa));
+                    msg.append(String.format("体积变化率: %.2f%%（正数表示变小）\n", ratioPct));
+                    msg.append("\n详细过程见控制台日志（强力压缩 / 强力压缩 FAIL 等前缀）。");
+
+                    int type = fl > 0 || sk > 0 ? JOptionPane.WARNING_MESSAGE : JOptionPane.INFORMATION_MESSAGE;
+                    JOptionPane.showMessageDialog(parentComponent, msg.toString(), "强力压缩完成", type);
+                    if (onComplete != null) {
+                        onComplete.run();
+                    }
+                });
+
+                return null;
+            }
+        };
+        worker.execute();
+    }
+
+    private static BufferedImage copyImageToArgb(BufferedImage source) {
+        BufferedImage copy = new BufferedImage(source.getWidth(), source.getHeight(), BufferedImage.TYPE_INT_ARGB);
+        copy.setRGB(0, 0, source.getWidth(), source.getHeight(),
+                source.getRGB(0, 0, source.getWidth(), source.getHeight(), null, 0, source.getWidth()),
+                0, source.getWidth());
+        return copy;
+    }
+
+    private static boolean isKnownCorruptImageError(Throwable e) {
+        String message = e.getMessage();
+        Throwable cause = e.getCause();
+        if (message != null) {
+            if (message.contains("Unexpected end of ZLIB input stream")
+                    || message.contains("EOFException")
+                    || message.contains("BufferOverflow")
+                    || message.contains("BufferUnderflow")) {
+                return true;
+            }
+        }
+        if (cause != null) {
+            String causeMsg = cause.getMessage();
+            if (causeMsg != null && (causeMsg.contains("Unexpected end of ZLIB input stream")
+                    || causeMsg.contains("EOFException"))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String shortError(Throwable e) {
+        String m = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+        Throwable c = e.getCause();
+        if (c != null && c.getMessage() != null) {
+            m += " (Cause: " + c.getMessage() + ")";
+        }
+        return m;
+    }
+
+    private static void collectAllCanvases(WzObject node, List<WzCanvasProperty> result, List<String> excludedNames) {
+        if (node instanceof WzCanvasProperty canvas) {
+            boolean excluded = false;
+            if (excludedNames != null && !excludedNames.isEmpty()) {
+                for (String name : excludedNames) {
+                    if (canvas.getName().equals(name)) {
+                        excluded = true;
+                        break;
+                    }
+                }
+            }
+            if (!excluded) {
+                result.add(canvas);
+            }
+        } else if (node instanceof WzImageProperty prop && prop.isListProperty()) {
+            List<? extends WzObject> children = prop.getChildren();
+            if (children != null) {
+                for (WzObject child : children) {
+                    collectAllCanvases(child, result, excludedNames);
+                }
+            }
+        } else if (node instanceof WzImage) {
+            List<? extends WzObject> children = ((WzImage) node).getChildren();
+            if (children != null) {
+                for (WzObject child : children) {
+                    collectAllCanvases(child, result, excludedNames);
+                }
+            }
+        } else if (node instanceof WzDirectory) {
+            List<? extends WzObject> children = ((WzDirectory) node).getChildren();
+            if (children != null) {
+                for (WzObject child : children) {
+                    collectAllCanvases(child, result, excludedNames);
+                }
+            }
+        }
     }
 
     /**

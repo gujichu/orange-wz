@@ -7,6 +7,8 @@ import orange.wz.gui.component.form.data.NodeFormData;
 import orange.wz.gui.component.panel.EditPane;
 import orange.wz.gui.utils.ImagePreviewCollector;
 import orange.wz.gui.utils.ImagePreviewData;
+import orange.wz.gui.utils.StrongCompressDialog;
+import orange.wz.gui.utils.StrongCompressOptions;
 import orange.wz.provider.WzObject;
 
 import javax.swing.*;
@@ -27,6 +29,10 @@ public class NodeForm extends AbstractValueForm {
         JButton compressBtn = new JButton("图片压缩");
         compressBtn.addActionListener(e -> compressImages());
         addButton(compressBtn);
+
+        JButton strongCompressBtn = new JButton("强力压缩");
+        strongCompressBtn.addActionListener(e -> strongCompressImages());
+        addButton(strongCompressBtn);
         
         // 初始化预览容器
         previewContainer = new ImagePreviewContainer();
@@ -41,7 +47,7 @@ public class NodeForm extends AbstractValueForm {
         
         // 检查是否有缓存的预览数据
         if (wzObject != null) {
-            ImagePreviewData cachedData = editPane.getImagePreviewCache().get(wzObject.getPath());
+            ImagePreviewData cachedData = editPane.getImagePreviewCache().getPreviewForNodePath(wzObject.getPath());
             if (cachedData != null) {
                 log.debug("使用缓存的预览数据: {}", wzObject.getPath());
                 previewContainer.setPreviewData(cachedData);
@@ -77,20 +83,19 @@ public class NodeForm extends AbstractValueForm {
                         // 重新收集并加载预览数据
                         if (editPane != null) {
                             String cacheKey = curWzObject.getPath();
-                            editPane.getImagePreviewCache().remove(cacheKey); // 清除旧缓存
+                            editPane.getImagePreviewCache().removePreviewGroup(cacheKey);
 
                             SwingWorker<ImagePreviewData, Void> reloadWorker = new SwingWorker<>() {
                                 @Override
                                 protected ImagePreviewData doInBackground() {
-                                    return ImagePreviewCollector.collect(curWzObject);
+                                    return ImagePreviewCollector.collectPage(curWzObject, 0);
                                 }
 
                                 @Override
                                 protected void done() {
                                     try {
                                         ImagePreviewData newData = get();
-                                        newData.setRootNode(curWzObject);
-                                        editPane.getImagePreviewCache().put(cacheKey, newData);
+                                        editPane.getImagePreviewCache().putPreview(newData);
                                         setPreviewData(newData);
                                     } catch (Exception ex) {
                                         log.error("Failed to reload preview", ex);
@@ -102,6 +107,47 @@ public class NodeForm extends AbstractValueForm {
                     }
             );
         }
+    }
+
+    private void strongCompressImages() {
+        StrongCompressOptions opts = StrongCompressDialog.showDialog(valuePane);
+        if (opts == null) {
+            return;
+        }
+        if (curWzObject == null) {
+            return;
+        }
+        List<String> excludedNames = List.of("icon", "iconDisabled", "iconMouseOver");
+        orange.wz.gui.utils.CanvasUtil.strongCompressImages(
+                curWzObject,
+                opts,
+                excludedNames,
+                editPane,
+                () -> {
+                    if (editPane != null) {
+                        String cacheKey = curWzObject.getPath();
+                        editPane.getImagePreviewCache().removePreviewGroup(cacheKey);
+                        SwingWorker<ImagePreviewData, Void> reloadWorker = new SwingWorker<>() {
+                            @Override
+                            protected ImagePreviewData doInBackground() {
+                                return ImagePreviewCollector.collectPage(curWzObject, 0);
+                            }
+
+                            @Override
+                            protected void done() {
+                                try {
+                                    ImagePreviewData newData = get();
+                                    editPane.getImagePreviewCache().putPreview(newData);
+                                    setPreviewData(newData);
+                                } catch (Exception ex) {
+                                    log.error("Failed to reload preview after strong compress", ex);
+                                }
+                            }
+                        };
+                        reloadWorker.execute();
+                    }
+                }
+        );
     }
     
     /**

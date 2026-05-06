@@ -64,6 +64,25 @@ public class WzCanvasProperty extends WzExtended {
         setTempChanged(true);
     }
 
+    public void setPng(BufferedImage pngImage, WzPngFormat format, int scale, int zlibCompressionLevel) {
+        png.setImage(pngImage, format, scale, zlibCompressionLevel);
+        wzImage.setChanged(true);
+        setTempChanged(true);
+    }
+
+    public void setPng(BufferedImage pngImage, WzPngFormat format, int scale, int zlibCompressionLevel,
+                       WzPngZlibCompressMode zlibMode) {
+        png.setImage(pngImage, format, scale, zlibCompressionLevel, zlibMode);
+        wzImage.setChanged(true);
+        setTempChanged(true);
+    }
+
+    /** WZ 中当前存储的压缩图片字节长度（与写入体积相关） */
+    public int getCompressedPngStorageLength() {
+        byte[] b = png.getCompressedBytes(false);
+        return b != null ? b.length : 0;
+    }
+
     public WzPngProperty.CompressedPngData exportCompressedPngData() {
         return png.exportCompressedData();
     }

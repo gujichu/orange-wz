@@ -167,10 +167,25 @@ public class WzPngProperty extends WzImageProperty {
     }
 
     public void setImage(BufferedImage image, WzPngFormat format, int scale) {
+        setImage(image, format, scale, Deflater.DEFAULT_COMPRESSION);
+    }
+
+    /**
+     * @param zlibCompressionLevel {@link Deflater} 级别，常用 {@link Deflater#BEST_COMPRESSION} (9)
+     */
+    public void setImage(BufferedImage image, WzPngFormat format, int scale, int zlibCompressionLevel) {
+        setImage(image, format, scale, zlibCompressionLevel, WzPngZlibCompressMode.DEFAULT);
+    }
+
+    /**
+     * @param zlibMode zlib 策略；{@link WzPngZlibCompressMode#BRUTE_SMALLEST} 会多次压缩取最小体积累积 zlib 块
+     */
+    public void setImage(BufferedImage image, WzPngFormat format, int scale, int zlibCompressionLevel,
+                         WzPngZlibCompressMode zlibMode) {
         this.format = format;
         this.scale = scale;
         this.image = image;
-        compressImage();
+        compressImage(zlibCompressionLevel, zlibMode);
     }
 
     public CompressedPngData exportCompressedData() {
@@ -495,10 +510,20 @@ public class WzPngProperty extends WzImageProperty {
         };
     }
 
-    private byte[] zlibCompress(byte[] rawBytes) {
+    /**
+     * 尝试用指定 zlib 策略压缩；若当前 JDK 不支持该策略（如部分环境不支持 RLE=3），返回 null。
+     */
+    private byte[] tryZlibCompress(byte[] rawBytes, int level, int strategy) {
         ByteArrayOutputStream memStream = new ByteArrayOutputStream();
-        // 输出标准 zlib 流（包含 header + adler32），与 InflaterInputStream 解压路径匹配
-        Deflater deflater = new Deflater(Deflater.DEFAULT_COMPRESSION, false);
+        int lv = Math.max(Deflater.NO_COMPRESSION, Math.min(Deflater.BEST_COMPRESSION, level));
+        Deflater deflater = new Deflater(lv, false);
+        try {
+            deflater.setStrategy(strategy);
+        } catch (IllegalArgumentException ex) {
+            // 例如 JDK 未实现或拒绝 Deflater 策略 3（RLE）时，消息可能为 "null"
+            deflater.end();
+            return null;
+        }
 
         try (DeflaterOutputStream zip = new DeflaterOutputStream(memStream, deflater)) {
             zip.write(rawBytes);
@@ -509,18 +534,51 @@ public class WzPngProperty extends WzImageProperty {
         return memStream.toByteArray();
     }
 
-    public void compressImage() {
+    private byte[] zlibCompress(byte[] rawBytes, int level, int strategy) {
+        byte[] z = tryZlibCompress(rawBytes, level, strategy);
+        if (z != null) {
+            return z;
+        }
+        byte[] fallback = tryZlibCompress(rawBytes, level, Deflater.DEFAULT_STRATEGY);
+        if (fallback != null) {
+            return fallback;
+        }
+        throw new IllegalStateException("zlib 压缩失败：DEFAULT_STRATEGY 不可用");
+    }
+
+    private byte[] zlibCompressSmallest(byte[] rawBytes, int level) {
+        byte[] best = null;
+        for (int strat : WzPngZlibCompressMode.strategiesForBrute()) {
+            byte[] z = tryZlibCompress(rawBytes, level, strat);
+            if (z == null) {
+                continue;
+            }
+            if (best == null || z.length < best.length) {
+                best = z;
+            }
+        }
+        return best != null ? best : zlibCompress(rawBytes, level, Deflater.DEFAULT_STRATEGY);
+    }
+
+    private void compressImage(int zlibLevel, WzPngZlibCompressMode zlibMode) {
         WzMutableKey wzMutableKey = wzImage.getReader().getWzMutableKey();
         width = image.getWidth();
         height = image.getHeight();
 
         byte[] rawBytes = getRawBytes(image, format);
-        compressBytes(rawBytes, wzMutableKey);
-
+        compressBytes(rawBytes, wzMutableKey, zlibLevel, zlibMode);
     }
 
     private void compressBytes(byte[] rawBytes, WzMutableKey wzMutableKey) {
-        compressedBytes = zlibCompress(rawBytes);
+        compressBytes(rawBytes, wzMutableKey, Deflater.DEFAULT_COMPRESSION, WzPngZlibCompressMode.DEFAULT);
+    }
+
+    private void compressBytes(byte[] rawBytes, WzMutableKey wzMutableKey, int zlibLevel, WzPngZlibCompressMode zlibMode) {
+        if (zlibMode.brutePickSmallest()) {
+            compressedBytes = zlibCompressSmallest(rawBytes, zlibLevel);
+        } else {
+            compressedBytes = zlibCompress(rawBytes, zlibLevel, zlibMode.deflaterStrategy());
+        }
         // 检查是否使用旧版技能特效加密
         boolean useOldEnc = false;
         try {
@@ -583,7 +641,7 @@ public class WzPngProperty extends WzImageProperty {
                     compressedBytes = returnBytes;
                 }
             } else if (image != null) {
-                compressImage();
+                compressImage(Deflater.DEFAULT_COMPRESSION, WzPngZlibCompressMode.DEFAULT);
                 returnBytes = compressedBytes;
                 if (!saveInMem) {
                     compressedBytes = null;
