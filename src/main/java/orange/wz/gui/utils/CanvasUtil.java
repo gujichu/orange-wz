@@ -452,7 +452,9 @@ public final class CanvasUtil {
     private record StrongCompressPending(WzCanvasProperty canvas,
                                          WzPngProperty.CompressedPngData backup,
                                          BufferedImage workImage,
-                                         long beforeSize) {
+                                         long beforeSize,
+                                         WzPngFormat sourceFormat,
+                                         int sourceScale) {
     }
 
     /**
@@ -479,8 +481,10 @@ public final class CanvasUtil {
                 final int totalCollected = all.size();
 
                 int threadCount = Math.max(1, Math.min(20, (int) (Runtime.getRuntime().availableProcessors() * 0.8)));
-                log.info("强力压缩开始 节点下图片数={} 线程={} 格式={} ZLIB={} 算法={} pngScale={} 抖动={} 体积未减小则还原={}",
+                log.info("强力压缩开始 节点下图片数={} 线程={} 格式={} ZLIB={} zlib算法={} 像素量化={} LIQ(色数={},speed={},抖动={}) pngScale={} FS抖动={} 体积未减小则还原={}",
                         all.size(), threadCount, options.targetFormat(), options.zlibLevel(), options.zlibMode(),
+                        options.quantMode(),
+                        options.liqMaxColors(), options.liqSpeed(), options.liqDitherLevel(),
                         options.pngScale(), options.floydSteinbergDither(), options.skipIfNotSmaller());
 
                 ExecutorService writeExecutor = Executors.newFixedThreadPool(threadCount, r -> {
@@ -542,7 +546,13 @@ public final class CanvasUtil {
                                 }
                                 BufferedImage work = copyImageToArgb(src);
                                 src.flush();
-                                pending.add(new StrongCompressPending(canvas, backup, work, beforeLen));
+                                pending.add(new StrongCompressPending(
+                                        canvas,
+                                        backup,
+                                        work,
+                                        beforeLen,
+                                        canvas.getFormat(),
+                                        canvas.getScale()));
                             } catch (Throwable e) {
                                 if (isKnownCorruptImageError(e)) {
                                     skippedRead.incrementAndGet();
@@ -563,7 +573,15 @@ public final class CanvasUtil {
                             futures.add(writeExecutor.submit(() -> {
                                 BufferedImage img = p.workImage();
                                 try {
-                                    if (options.floydSteinbergDither()) {
+                                    if (options.quantMode() == StrongCompressQuantMode.LIBIMAGEQUANT) {
+                                        BufferedImage liqOut = LibimagequantStrongCompress.quantizeToArgb8888(
+                                                img,
+                                                options.liqMaxColors(),
+                                                options.liqSpeed(),
+                                                options.liqDitherLevel());
+                                        img.flush();
+                                        img = liqOut;
+                                    } else if (options.floydSteinbergDither()) {
                                         if (targetFormat == WzPngFormat.ARGB4444) {
                                             ImgTool.Argb32.floydSteinbergArgb4444(img);
                                         } else if (targetFormat == WzPngFormat.RGB565) {
@@ -573,11 +591,17 @@ public final class CanvasUtil {
                                     synchronized (p.canvas()) {
                                         p.canvas().setPng(img, targetFormat, pngScale, zlibLevel, zlibMode);
                                         int afterLen = p.canvas().getCompressedPngStorageLength();
-                                        if (options.skipIfNotSmaller() && afterLen >= p.beforeSize()) {
+                                        // DXT5/BC7 等块压缩往往比 ARGB8888+zlib 更小：勾选「未变小则还原」时不应冲掉显式格式转换
+                                        boolean packagingChanged = p.sourceFormat() != targetFormat || p.sourceScale() != pngScale;
+                                        if (options.skipIfNotSmaller() && afterLen >= p.beforeSize() && !packagingChanged) {
                                             p.canvas().copyPngFromCompressedData(p.backup(), false);
                                             afterLen = p.canvas().getCompressedPngStorageLength();
                                             reverted.incrementAndGet();
                                         } else {
+                                            if (options.skipIfNotSmaller() && afterLen >= p.beforeSize() && packagingChanged) {
+                                                log.info("强力压缩 体积未减小但已切换封装 {}→{} scale {}→{}，保留新格式",
+                                                        p.sourceFormat(), targetFormat, p.sourceScale(), pngScale);
+                                            }
                                             successApply.incrementAndGet();
                                         }
                                         p.canvas().clearImage();

@@ -78,6 +78,12 @@
             <artifactId>animated-gif-lib</artifactId>
             <version>1.4</version>
         </dependency>
+        <!-- org.pngquant.LiqObject 拷贝自 java-png-compress-util，用于加载 libimagequant 原生库 -->
+        <dependency>
+            <groupId>commons-io</groupId>
+            <artifactId>commons-io</artifactId>
+            <version>2.15.1</version>
+        </dependency>
     </dependencies>
 
     <build>

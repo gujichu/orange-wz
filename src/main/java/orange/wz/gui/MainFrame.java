@@ -169,9 +169,11 @@ public class MainFrame extends JFrame {
         keyBox = new KeyBox(wzKeyStorage.loadAll().toArray(new WzKey[0])); // 选择框
         JButton keyManager = new JButton("密钥管理");
         
-        // 旧版技能特效加密复选框
         JCheckBoxMenuItem oldSkillEncMenuItem = new JCheckBoxMenuItem("旧版技能特效");
         oldSkillEncMenuItem.setSelected(useOldSkillEncryption);
+        oldSkillEncMenuItem.setToolTipText(
+                "<html>勾选：压缩时使用旧版 MapleLib 技能密钥<strong>分块</strong>异或；ARGB8888 原始像素按 BGRA 写入。<br>"
+                        + "未勾选：若该图<strong>原本</strong>为 List.wz 类异或包头则沿用<strong>当前 WZ 密钥</strong>单块异或，否则仅 zlib。</html>");
         oldSkillEncMenuItem.addActionListener(e -> {
             useOldSkillEncryption = oldSkillEncMenuItem.isSelected();
         });
