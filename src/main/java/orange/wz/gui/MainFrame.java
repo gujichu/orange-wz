@@ -11,6 +11,7 @@ import orange.wz.gui.component.form.impl.CanvasForm;
 import orange.wz.gui.component.key.KeyBox;
 import orange.wz.gui.component.key.KeyManager;
 import orange.wz.gui.component.panel.CenterPane;
+import orange.wz.gui.utils.MemoryReclaimer;
 import orange.wz.gui.utils.UrlUtil;
 import orange.wz.manager.ServerManager;
 import orange.wz.provider.tools.wzkey.WzKey;
@@ -336,8 +337,13 @@ public class MainFrame extends JFrame {
     }
 
     private void gc() {
+        try {
+            MemoryReclaimer.reclaimAll(this);
+        } catch (Throwable t) {
+            log.warn("内存回收释放预览缓存时出现异常，将继续尝试 GC", t);
+        }
         System.gc();
-        setStatusText("已向系统建议回收内存");
+        setStatusText("已释放预览缓存、已挂载 Wz 的解码图片副本及画布图，并向 JVM 建议 GC（堆也未必还给操作系统）");
     }
 
     private void clearClipboard() {

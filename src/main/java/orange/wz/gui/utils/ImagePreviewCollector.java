@@ -47,6 +47,17 @@ public class ImagePreviewCollector {
      * 收集指定页的预览数据（根节点下一级子节点每 {@link #PREVIEW_PAGE_SIZE} 个一页）
      */
     public static ImagePreviewData collectPage(WzObject root, int pageIndex) {
+        return collectPage(root, pageIndex, AnimationPreviewConfigIni.getOptions());
+    }
+
+    /**
+     * 收集指定页的预览数据，并按名称过滤选项收集动画/单图。
+     */
+    public static ImagePreviewData collectPage(WzObject root, int pageIndex, AnimationPreviewOptions options) {
+        if (options == null) {
+            options = AnimationPreviewConfigIni.getOptions();
+        }
+        options = options.copy();
         ImagePreviewData result = new ImagePreviewData();
         result.setRootNode(root);
         result.setPreviewPageSize(PREVIEW_PAGE_SIZE);
@@ -59,7 +70,7 @@ public class ImagePreviewCollector {
             if (n <= PREVIEW_PAGE_SIZE) {
                 result.setPreviewPageIndex(0);
                 result.setPreviewTotalPages(1);
-                collectRecursive(root, result, "", null);
+                collectRecursive(root, result, "", null, options);
             } else {
                 int totalPages = (n + PREVIEW_PAGE_SIZE - 1) / PREVIEW_PAGE_SIZE;
                 result.setPreviewTotalPages(totalPages);
@@ -67,15 +78,17 @@ public class ImagePreviewCollector {
                 result.setPreviewPageIndex(page);
                 int start = page * PREVIEW_PAGE_SIZE;
                 int end = Math.min(start + PREVIEW_PAGE_SIZE, n);
-                collectRecursive(root, result, "", new RootSlice(root, start, end));
+                collectRecursive(root, result, "", new RootSlice(root, start, end), options);
             }
 
             sortPreviewData(result);
+            result.setPreviewFilterSuffix(options.previewFilterCacheSuffix());
             return result;
         } catch (CancellationException e) {
             Thread.currentThread().interrupt();
             result.getAnimations().clear();
             result.getSingleImages().clear();
+            result.setPreviewFilterSuffix(options.previewFilterCacheSuffix());
             return result;
         }
     }
@@ -121,13 +134,17 @@ public class ImagePreviewCollector {
     /**
      * 递归收集
      */
-    private static void collectRecursive(WzObject node, ImagePreviewData result, String parentPath, RootSlice rootSlice) {
+    private static void collectRecursive(WzObject node, ImagePreviewData result, String parentPath, RootSlice rootSlice,
+                                         AnimationPreviewOptions options) {
         checkInterrupted();
         String currentPath = parentPath.isEmpty() ? node.getName() : parentPath + "/" + node.getName();
         boolean applySlice = rootSlice != null && node == rootSlice.rootRef();
 
         if (node instanceof WzListProperty listProp) {
             if (isImageSequence(listProp)) {
+                if (!PreviewNameFilter.shouldInclude(listProp.getName(), options)) {
+                    return;
+                }
                 List<WzImageProperty> children = listProp.getChildren();
                 if (children == null || children.isEmpty()) {
                     return;
@@ -155,10 +172,13 @@ public class ImagePreviewCollector {
                 }
                 for (int i = from; i < to; i++) {
                     checkInterrupted();
-                    collectRecursive(children.get(i), result, currentPath, null);
+                    collectRecursive(children.get(i), result, currentPath, null, options);
                 }
             }
         } else if (node instanceof WzCanvasProperty canvasProp) {
+            if (!PreviewNameFilter.shouldInclude(node.getName(), options)) {
+                return;
+            }
             try {
                 if (canvasProp.getPngImage(true) != null) {
                     ImagePreviewData.SingleImageData image = new ImagePreviewData.SingleImageData(
@@ -173,6 +193,9 @@ public class ImagePreviewCollector {
                 log.warn("Failed to load image: {}", currentPath, e);
             }
         } else if (node instanceof WzUOLProperty uolProp) {
+            if (!PreviewNameFilter.shouldInclude(node.getName(), options)) {
+                return;
+            }
             WzCanvasProperty resolvedCanvas = resolveUolToCanvas(uolProp, currentPath);
             if (resolvedCanvas != null) {
                 try {
@@ -200,7 +223,7 @@ public class ImagePreviewCollector {
             }
             for (int i = from; i < to; i++) {
                 checkInterrupted();
-                collectRecursive(children.get(i), result, currentPath, null);
+                collectRecursive(children.get(i), result, currentPath, null, options);
             }
         } else if (node instanceof WzImageProperty imageProp) {
             List<WzImageProperty> children = imageProp.getChildren();
@@ -215,7 +238,7 @@ public class ImagePreviewCollector {
             }
             for (int i = from; i < to; i++) {
                 checkInterrupted();
-                collectRecursive(children.get(i), result, currentPath, null);
+                collectRecursive(children.get(i), result, currentPath, null, options);
             }
         }
     }

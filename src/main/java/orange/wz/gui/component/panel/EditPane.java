@@ -47,8 +47,8 @@ public final class EditPane extends JSplitPane {
     private DefaultMutableTreeNode treeRoot;
     private DefaultTreeModel treeModel;
     
-    // 图片预览缓存（最大保存 7 个节点）
-    private final ImagePreviewCache imagePreviewCache = new ImagePreviewCache();
+    // 图片预览缓存（最多 4 个节点，可在预览面板勾选「预览缓存」关闭写入）
+    private final ImagePreviewCache imagePreviewCache = new ImagePreviewCache(4);
 
     private JPanel formCards;
 
@@ -898,6 +898,10 @@ public final class EditPane extends JSplitPane {
             DefaultMutableTreeNode child = (DefaultMutableTreeNode) node.getChildAt(i);
             removeNodeFromTree(child);
         }
+        Object uo = node.getUserObject();
+        if (uo instanceof WzObject wzObj) {
+            WzLoadedMemoryReclaimer.releaseRoot(wzObj);
+        }
         node.setUserObject(null);
         treeModel.removeNodeFromParent(node);
     }
@@ -1404,11 +1408,21 @@ public final class EditPane extends JSplitPane {
      * 移除 Root 下全部节点
      */
     public void unloadAll() {
-        treeRoot.removeAllChildren();
+        while (treeRoot.getChildCount() > 0) {
+            DefaultMutableTreeNode child = (DefaultMutableTreeNode) treeRoot.getChildAt(0);
+            removeNodeFromTree(child);
+        }
         treeModel.reload(treeRoot);
         resetValueForm();
         // 清除所有缓存
         imagePreviewCache.clear();
+    }
+
+    /**
+     * 文件仍挂载在树上时，丢弃各节点已解码的图片缓存（供「内存回收」菜单）。
+     */
+    public void discardLoadedWzDecodedCaches() {
+        WzLoadedMemoryReclaimer.discardDecodedImagesUnder(treeRoot);
     }
 
     // 排序并改名：对子列表进行排序，并将数值类型的名称按从0开始的自然序数进行改名，使其连续 --------------------------------------------

@@ -117,6 +117,16 @@ public class WzCanvasProperty extends WzExtended {
         png.clearImage();
     }
 
+    /**
+     * 丢弃解码后的位图及可重建的压缩字节副本（文件仍打开时用于手动内存回收）。
+     */
+    public void discardHeavyGraphicCaches() {
+        if (png != null) {
+            png.clearImage();
+            png.discardReloadableCompressedCopy();
+        }
+    }
+
     public void clearPngProperty() {
         png.setParent(null);
         png = null;

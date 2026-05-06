@@ -13,16 +13,20 @@ import java.util.Map;
 @Slf4j
 public class ImagePreviewCache {
 
-    private static final int MAX_CACHE_SIZE = 7;
-
+    private final int maxCacheSize;
     private final LinkedHashMap<String, ImagePreviewData> cache;
 
-    public ImagePreviewCache() {
-        this.cache = new LinkedHashMap<String, ImagePreviewData>(MAX_CACHE_SIZE, 0.75f, true) {
+    public ImagePreviewCache(int maxCacheSize) {
+        this.maxCacheSize = Math.max(1, maxCacheSize);
+        this.cache = new LinkedHashMap<String, ImagePreviewData>(this.maxCacheSize, 0.75f, true) {
             @Override
             protected boolean removeEldestEntry(Map.Entry<String, ImagePreviewData> eldest) {
-                boolean shouldRemove = size() > MAX_CACHE_SIZE;
+                boolean shouldRemove = size() > ImagePreviewCache.this.maxCacheSize;
                 if (shouldRemove) {
+                    ImagePreviewData v = eldest.getValue();
+                    if (v != null) {
+                        v.discardPixelData();
+                    }
                     log.debug("Cache full, removing oldest entry: {}", eldest.getKey());
                 }
                 return shouldRemove;
@@ -41,7 +45,10 @@ public class ImagePreviewCache {
      * 存入缓存
      */
     public void put(String key, ImagePreviewData data) {
-        cache.put(key, data);
+        ImagePreviewData previous = cache.put(key, data);
+        if (previous != null && previous != data) {
+            previous.discardPixelData();
+        }
         log.debug("Cached: {} (cache size: {})", key, cache.size());
     }
 
@@ -56,6 +63,11 @@ public class ImagePreviewCache {
      * 清空缓存
      */
     public void clear() {
+        for (ImagePreviewData v : new ArrayList<>(cache.values())) {
+            if (v != null) {
+                v.discardPixelData();
+            }
+        }
         cache.clear();
     }
 
@@ -63,66 +75,80 @@ public class ImagePreviewCache {
      * 移除指定键的缓存
      */
     public void remove(String key) {
-        cache.remove(key);
+        ImagePreviewData removed = cache.remove(key);
+        if (removed != null) {
+            removed.discardPixelData();
+        }
     }
 
     /**
-     * 读取节点预览：先精确 path，再尝试分页第一页 path#p0
+     * 读取节点预览：先精确 path+过滤后缀，再尝试 path#p0+过滤后缀
      */
-    public ImagePreviewData getPreviewForNodePath(String path) {
-        ImagePreviewData d = get(path);
+    public ImagePreviewData getPreviewForNodePath(String path, String filterSuffix) {
+        String fs = filterSuffix != null ? filterSuffix : "";
+        ImagePreviewData d = get(path + fs);
         if (d != null) {
             return d;
         }
-        return get(path + "#p0");
+        return get(path + "#p0" + fs);
     }
 
     /**
-     * 按 {@link ImagePreviewData#buildCacheKey()} 写入
+     * 按 {@link ImagePreviewData#buildCacheKey()} 写入（关闭预览缓存时不写入）
      */
     public void putPreview(ImagePreviewData data) {
         if (data == null || data.getRootNode() == null) {
+            return;
+        }
+        if (!AnimationPreviewConfigIni.getOptions().isPreviewCacheEnabled()) {
             return;
         }
         put(data.buildCacheKey(), data);
     }
 
     /**
-     * 移除某节点预览（含 path#p* 分页条目）
+     * 移除某节点预览（含 path#p*、path#pf* 等后缀条目）
      */
     public void removePreviewGroup(String basePath) {
         List<String> keysToRemove = new ArrayList<>();
         for (String key : cache.keySet()) {
-            if (key.equals(basePath) || key.startsWith(basePath + "#p")) {
+            if (key.equals(basePath) || key.startsWith(basePath + "#")) {
                 keysToRemove.add(key);
             }
         }
         for (String key : keysToRemove) {
-            cache.remove(key);
+            ImagePreviewData removed = cache.remove(key);
+            if (removed != null) {
+                removed.discardPixelData();
+            }
         }
     }
 
     /**
      * 分页预览专用：只保留当前页的预览数据，移除同节点其它页及非分页键，释放动画/图片像素占用。
      */
-    public void retainOnlyPagedPreview(String basePath, int pageIndex) {
-        String keepSuffix = String.valueOf(pageIndex);
-        String marker = basePath + "#p";
+    public void retainOnlyPagedPreview(String basePath, int pageIndex, String filterSuffix) {
+        String fs = filterSuffix != null ? filterSuffix : "";
+        String exactKeep = basePath + "#p" + pageIndex + fs;
+        String exactKeepLegacy = basePath + "#p" + pageIndex;
         List<String> keysToRemove = new ArrayList<>();
         for (String key : cache.keySet()) {
+            if (key.equals(exactKeep) || key.equals(exactKeepLegacy)) {
+                continue;
+            }
             if (key.equals(basePath)) {
                 keysToRemove.add(key);
                 continue;
             }
-            if (key.startsWith(marker)) {
-                String rest = key.substring(marker.length());
-                if (!rest.equals(keepSuffix)) {
-                    keysToRemove.add(key);
-                }
+            if (key.startsWith(basePath + "#")) {
+                keysToRemove.add(key);
             }
         }
         for (String key : keysToRemove) {
-            cache.remove(key);
+            ImagePreviewData removed = cache.remove(key);
+            if (removed != null) {
+                removed.discardPixelData();
+            }
             log.debug("分页预览释放其它页缓存: {}", key);
         }
     }
@@ -139,7 +165,10 @@ public class ImagePreviewCache {
             }
         }
         for (String key : keysToRemove) {
-            cache.remove(key);
+            ImagePreviewData removed = cache.remove(key);
+            if (removed != null) {
+                removed.discardPixelData();
+            }
             log.debug("Removed cached entry: {}", key);
         }
     }

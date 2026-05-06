@@ -333,7 +333,19 @@ public class WzPngProperty extends WzImageProperty {
     }
 
     public void clearImage() {
+        if (image != null) {
+            image.flush();
+        }
         image = null;
+    }
+
+    /**
+     * 丢弃堆上的压缩数据副本（仍可从 {@link #offset} + reader 再读），减轻预览后内存占用。
+     */
+    public void discardReloadableCompressedCopy() {
+        if (offset != 0 && wzImage != null && wzImage.getReader() != null) {
+            compressedBytes = null;
+        }
     }
 
     // Getter ----------------------------------------------------------------------------------------------------------

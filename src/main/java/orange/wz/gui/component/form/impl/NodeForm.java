@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import orange.wz.gui.component.canvas.ImagePreviewContainer;
 import orange.wz.gui.component.form.data.NodeFormData;
 import orange.wz.gui.component.panel.EditPane;
+import orange.wz.gui.utils.AnimationPreviewConfigIni;
 import orange.wz.gui.utils.ImagePreviewCollector;
 import orange.wz.gui.utils.ImagePreviewData;
 import orange.wz.gui.utils.StrongCompressDialog;
@@ -46,8 +47,9 @@ public class NodeForm extends AbstractValueForm {
         previewContainer.setEditPane(editPane);
         
         // 检查是否有缓存的预览数据
-        if (wzObject != null) {
-            ImagePreviewData cachedData = editPane.getImagePreviewCache().getPreviewForNodePath(wzObject.getPath());
+        if (wzObject != null && AnimationPreviewConfigIni.getOptions().isPreviewCacheEnabled()) {
+            String fs = AnimationPreviewConfigIni.getOptions().previewFilterCacheSuffix();
+            ImagePreviewData cachedData = editPane.getImagePreviewCache().getPreviewForNodePath(wzObject.getPath(), fs);
             if (cachedData != null) {
                 log.debug("使用缓存的预览数据: {}", wzObject.getPath());
                 previewContainer.setPreviewData(cachedData);
@@ -88,7 +90,7 @@ public class NodeForm extends AbstractValueForm {
                             SwingWorker<ImagePreviewData, Void> reloadWorker = new SwingWorker<>() {
                                 @Override
                                 protected ImagePreviewData doInBackground() {
-                                    return ImagePreviewCollector.collectPage(curWzObject, 0);
+                                    return ImagePreviewCollector.collectPage(curWzObject, 0, AnimationPreviewConfigIni.getOptions());
                                 }
 
                                 @Override
@@ -130,7 +132,7 @@ public class NodeForm extends AbstractValueForm {
                         SwingWorker<ImagePreviewData, Void> reloadWorker = new SwingWorker<>() {
                             @Override
                             protected ImagePreviewData doInBackground() {
-                                return ImagePreviewCollector.collectPage(curWzObject, 0);
+                                return ImagePreviewCollector.collectPage(curWzObject, 0, AnimationPreviewConfigIni.getOptions());
                             }
 
                             @Override
@@ -162,6 +164,42 @@ public class NodeForm extends AbstractValueForm {
      */
     public void hidePreview() {
         previewContainer.hidePreview();
+    }
+
+    /**
+     * 工具条「刷新」：清空当前节点预览缓存并按当前选项重新收集。
+     */
+    public void refreshPreviewFromToolbar() {
+        if (curWzObject == null || editPane == null) {
+            return;
+        }
+        String basePath = curWzObject.getPath();
+        editPane.getImagePreviewCache().removePreviewGroup(basePath);
+        int pageIndex = 0;
+        ImagePreviewData pd = previewContainer.getPreviewData();
+        if (pd != null && pd.isPaginationActive()) {
+            pageIndex = pd.getPreviewPageIndex();
+        }
+        final int page = pageIndex;
+        final WzObject rootObj = curWzObject;
+        SwingWorker<ImagePreviewData, Void> worker = new SwingWorker<>() {
+            @Override
+            protected ImagePreviewData doInBackground() {
+                return ImagePreviewCollector.collectPage(rootObj, page, AnimationPreviewConfigIni.getOptions());
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    ImagePreviewData data = get();
+                    editPane.getImagePreviewCache().putPreview(data);
+                    setPreviewData(data);
+                } catch (Exception ex) {
+                    log.error("刷新预览失败", ex);
+                }
+            }
+        };
+        worker.execute();
     }
 
     @Override

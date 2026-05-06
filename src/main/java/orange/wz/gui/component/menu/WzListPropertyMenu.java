@@ -753,7 +753,7 @@ public final class WzListPropertyMenu extends JPopupMenu {
             SwingWorker<ImagePreviewData, Void> worker = new SwingWorker<>() {
                 @Override
                 protected ImagePreviewData doInBackground() {
-                    return ImagePreviewCollector.collectPage(wzObject, 0);
+                    return ImagePreviewCollector.collectPage(wzObject, 0, AnimationPreviewConfigIni.getOptions());
                 }
                 
                 @Override
