@@ -1,4 +1,10 @@
 {
+  "magicSteal":"吸 MP（蓝）",
+  "hpSteal":"吸 HP（血）",
+  "trembling":"开启颤栗效果",
+  "tremblingTime":"持续时间（ms）",
+  "tremblingChance":"触发概率（%）",
+  "buffSteal":"偷增益（飞侠 “增益偷取”）",
   "chainAttack":"连锁连击标记 技能命中后自动衔接追击连贯攻击",
   "reqLev": "学习等级",
   "hyper": "超级技能",

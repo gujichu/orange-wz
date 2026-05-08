@@ -181,9 +181,8 @@ public final class WzXmlFileMenu extends JPopupMenu {
             EditPane targetPane = MainFrame.getInstance().getCenterPane().getAnotherPane(editPane);
             for (TreePath treePath : selectedPaths) {
                 DefaultMutableTreeNode node = (DefaultMutableTreeNode) treePath.getLastPathComponent();
-                WzXmlFile wzXmlFile = (WzXmlFile) node.getUserObject();
-                targetPane.insertNodeToTree(targetPane.getTreeRoot(), wzXmlFile, true);
-                editPane.removeNodeFromTree((DefaultMutableTreeNode) treePath.getLastPathComponent());
+                editPane.detachSubtreeWithoutRelease(node);
+                targetPane.insertDetachedSubtree(targetPane.getTreeRoot(), node, true);
             }
             editPane.resetValueForm();
         });

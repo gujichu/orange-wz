@@ -907,6 +907,30 @@ public final class EditPane extends JSplitPane {
     }
 
     /**
+     * 从树上摘下整棵子树，不调用 {@link WzLoadedMemoryReclaimer#releaseRoot}。
+     * 用于「转移视图」等场景：目标侧仍持有相同 {@link DefaultMutableTreeNode} / {@link WzObject}，若释放会清空数据。
+     */
+    public void detachSubtreeWithoutRelease(DefaultMutableTreeNode node) {
+        if (node == null || node.getParent() == null) {
+            return;
+        }
+        treeModel.removeNodeFromParent(node);
+    }
+
+    /**
+     * 将已通过 {@link #detachSubtreeWithoutRelease} 摘下的子树挂到父节点下，保留原有子节点结构。
+     */
+    public void insertDetachedSubtree(DefaultMutableTreeNode parentNode, DefaultMutableTreeNode subtreeRoot, boolean expand) {
+        if (subtreeRoot == null || parentNode == null) {
+            return;
+        }
+        treeModel.insertNodeInto(subtreeRoot, parentNode, parentNode.getChildCount());
+        if (expand) {
+            tree.expandPath(new TreePath(parentNode.getPath()));
+        }
+    }
+
+    /**
      * 从树里移除节点
      *
      * @param node 任意节点

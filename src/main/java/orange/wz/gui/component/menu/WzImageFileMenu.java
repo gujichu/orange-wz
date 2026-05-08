@@ -190,9 +190,8 @@ public final class WzImageFileMenu extends JPopupMenu {
             EditPane targetPane = MainFrame.getInstance().getCenterPane().getAnotherPane(editPane);
             for (TreePath treePath : selectedPaths) {
                 DefaultMutableTreeNode node = (DefaultMutableTreeNode) treePath.getLastPathComponent();
-                WzImageFile wzImageFile = (WzImageFile) node.getUserObject();
-                targetPane.insertNodeToTree(targetPane.getTreeRoot(), wzImageFile, true);
-                editPane.removeNodeFromTree((DefaultMutableTreeNode) treePath.getLastPathComponent());
+                editPane.detachSubtreeWithoutRelease(node);
+                targetPane.insertDetachedSubtree(targetPane.getTreeRoot(), node, true);
             }
             editPane.resetValueForm();
         });
