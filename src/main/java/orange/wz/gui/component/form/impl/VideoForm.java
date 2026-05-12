@@ -14,10 +14,18 @@ import orange.wz.gui.video.VideoArgbFormatConverter;
 import orange.wz.gui.video.VideoImageBitDepth;
 import orange.wz.gui.video.VideoImageSequenceExporter;
 import orange.wz.gui.video.VideoPlaybackConstants;
+import orange.wz.provider.WzImage;
+import orange.wz.provider.WzImageProperty;
 import orange.wz.provider.WzObject;
+import orange.wz.provider.properties.WzCanvasProperty;
+import orange.wz.provider.properties.WzIntProperty;
+import orange.wz.provider.properties.WzVectorProperty;
+import orange.wz.provider.properties.WzPngFormat;
 import orange.wz.provider.properties.WzVideoProperty;
 
 import javax.swing.*;
+import javax.swing.tree.DefaultMutableTreeNode;
+import javax.swing.tree.TreePath;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.File;
@@ -41,6 +49,12 @@ public class VideoForm extends AbstractValueForm {
     private final JButton btnPlay = new JButton("播放");
     private final JButton btnExportVideo = new JButton("导出视频");
     private final JButton btnExportImages = new JButton("导出图片集");
+    private final JButton btnGenerateFrameNodes = new JButton("生成子节点");
+
+    private static final int ORIGIN_REF_WIDTH = 1456;
+    private static final int ORIGIN_REF_HEIGHT = 860;
+    private static final int ORIGIN_REF_X = 720;
+    private static final int ORIGIN_REF_Y = 500;
 
     private SwingWorker<CanvasVideoFfmpegDecoder.DecodedVideo, Void> loadWorker;
     private Timer animTimer;
@@ -96,12 +110,15 @@ public class VideoForm extends AbstractValueForm {
         btnPlay.setEnabled(false);
         btnExportVideo.setEnabled(false);
         btnExportImages.setEnabled(false);
+        btnGenerateFrameNodes.setEnabled(false);
         btnPlay.addActionListener(e -> togglePlay());
         btnExportVideo.addActionListener(e -> exportVideo());
         btnExportImages.addActionListener(e -> exportImages());
+        btnGenerateFrameNodes.addActionListener(e -> generateFrameImageSiblingNodes());
         btnRow.add(btnPlay);
         btnRow.add(btnExportVideo);
         btnRow.add(btnExportImages);
+        btnRow.add(btnGenerateFrameNodes);
 
         JPanel southWrap = new JPanel(new BorderLayout(0, 6));
         southWrap.add(zoomRow, BorderLayout.NORTH);
@@ -133,6 +150,7 @@ public class VideoForm extends AbstractValueForm {
         btnPlay.setEnabled(false);
         btnExportVideo.setEnabled(false);
         btnExportImages.setEnabled(false);
+        btnGenerateFrameNodes.setEnabled(false);
         lastMcvBytes = mcvBytes;
 
         statusLabel.setText("解码中…");
@@ -160,6 +178,7 @@ public class VideoForm extends AbstractValueForm {
                     btnPlay.setEnabled(!frames.isEmpty());
                     btnExportVideo.setEnabled(!frames.isEmpty());
                     btnExportImages.setEnabled(!frames.isEmpty());
+                    btnGenerateFrameNodes.setEnabled(!frames.isEmpty());
                     imageScroll.revalidate();
                     imageScroll.repaint();
                 } catch (InterruptedException | ExecutionException ex) {
@@ -349,6 +368,150 @@ public class VideoForm extends AbstractValueForm {
             }
         };
         worker.execute();
+    }
+
+    /**
+     * 在左侧树当前选中的视频节点之<strong>同级</strong>（同一父节点下）按帧数插入 Canvas 图片节点，名称 0～n-1，
+     * 每张为 ARGB8888（含 alpha），子属性 delay / origin / z。
+     */
+    private void generateFrameImageSiblingNodes() {
+        if (lastMcvBytes == null || frames == null || frames.isEmpty()) {
+            return;
+        }
+        EditPane editPane = getEditPane();
+        if (editPane == null) {
+            return;
+        }
+        TreePath path = editPane.getTree().getSelectionPath();
+        if (path == null) {
+            JMessageUtil.warn("操作提示", "请先在左侧树中选中当前视频节点。");
+            return;
+        }
+        DefaultMutableTreeNode videoNode = (DefaultMutableTreeNode) path.getLastPathComponent();
+        WzObject selected = (WzObject) videoNode.getUserObject();
+        if (!(selected instanceof WzVideoProperty video)) {
+            JMessageUtil.warn("操作提示", "请选中 Canvas#Video 视频节点本身（不要选 UOL 等其它节点）。");
+            return;
+        }
+        WzObject parentWz = video.getParent();
+        if (!(parentWz instanceof WzImage) && !(parentWz instanceof WzImageProperty wip && wip.isListProperty())) {
+            JMessageUtil.error("无法在父节点下添加图片：父节点类型不支持。");
+            return;
+        }
+        WzImage wzImage = video.getWzImage();
+        if (wzImage == null) {
+            JMessageUtil.error("无法取得所属 img。");
+            return;
+        }
+        if (!wzImage.parse()) {
+            MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzImage.getName(), wzImage.getStatus().getMessage());
+            JMessageUtil.error("img 解析失败，无法添加节点。");
+            return;
+        }
+        int frameCount = frames.size();
+        for (int i = 0; i < frameCount; i++) {
+            String nm = Integer.toString(i);
+            if (parentWz instanceof WzImage wi && wi.existChild(nm)) {
+                JMessageUtil.error("父节点下已存在名为 \"" + nm + "\" 的子节点，请先处理命名冲突。");
+                return;
+            }
+            if (parentWz instanceof WzImageProperty wip && wip.isListProperty() && wip.existChild(nm)) {
+                JMessageUtil.error("父节点下已存在名为 \"" + nm + "\" 的子节点，请先处理命名冲突。");
+                return;
+            }
+        }
+        DefaultMutableTreeNode parentNode = (DefaultMutableTreeNode) videoNode.getParent();
+        if (parentNode == null) {
+            JMessageUtil.error("树结构异常：视频节点无父节点。");
+            return;
+        }
+        int videoDataIndex = indexOfChildProperty(parentWz, video);
+        if (videoDataIndex < 0) {
+            JMessageUtil.error("在父节点子列表中未找到当前视频，请尝试重新展开 img 后再试。");
+            return;
+        }
+        int videoTreeIndex = parentNode.getIndex(videoNode);
+        if (videoTreeIndex < 0) {
+            JMessageUtil.error("在树中未找到当前视频节点位置。");
+            return;
+        }
+
+        btnGenerateFrameNodes.setEnabled(false);
+        final WzObject parentRef = parentWz;
+        final int videoIdx = videoDataIndex;
+        final int treeIdx = videoTreeIndex;
+        SwingWorker<List<WzCanvasProperty>, Void> worker = new SwingWorker<>() {
+            @Override
+            protected List<WzCanvasProperty> doInBackground() {
+                List<WzCanvasProperty> built = new ArrayList<>(frameCount);
+                for (int i = 0; i < frameCount; i++) {
+                    BufferedImage raw = frames.get(i);
+                    BufferedImage argb = VideoArgbFormatConverter.apply(raw, VideoImageBitDepth.ARGB8888);
+                    int w = argb.getWidth();
+                    int h = argb.getHeight();
+                    int ox = (int) Math.round(ORIGIN_REF_X * (double) w / ORIGIN_REF_WIDTH);
+                    int oy = (int) Math.round(ORIGIN_REF_Y * (double) h / ORIGIN_REF_HEIGHT);
+                    String frameName = Integer.toString(i);
+                    WzCanvasProperty canvas = new WzCanvasProperty(frameName, parentRef, wzImage);
+                    canvas.initPngProperty(frameName, canvas, wzImage);
+                    canvas.setPng(argb, WzPngFormat.ARGB8888, 0);
+                    canvas.addChild(new WzIntProperty("delay", 60, canvas, wzImage));
+                    canvas.addChild(new WzVectorProperty("origin", ox, oy, canvas, wzImage));
+                    canvas.addChild(new WzIntProperty("z", 0, canvas, wzImage));
+                    canvas.setTempChanged(true);
+                    built.add(canvas);
+                }
+                return built;
+            }
+
+            @Override
+            protected void done() {
+                btnGenerateFrameNodes.setEnabled(true);
+                try {
+                    List<WzCanvasProperty> list = get();
+                    for (int k = 0; k < list.size(); k++) {
+                        WzCanvasProperty canvas = list.get(k);
+                        int dataIndex = videoIdx + 1 + k;
+                        boolean ok;
+                        if (parentRef instanceof WzImage wi) {
+                            ok = wi.addChildAt(canvas, dataIndex);
+                        } else if (parentRef instanceof WzImageProperty wip) {
+                            ok = wip.addChildAt(canvas, dataIndex);
+                        } else {
+                            ok = false;
+                        }
+                        if (!ok) {
+                            JMessageUtil.error("添加节点 \"" + canvas.getName() + "\" 失败（可能重名）。");
+                            return;
+                        }
+                        editPane.insertNodeToTree(parentNode, canvas, true, treeIdx + 1 + k);
+                    }
+                    JMessageUtil.info("已在视频同级添加 " + list.size() + " 个图片节点（名称 0～" + (list.size() - 1) + "），格式 ARGB8888，含 delay/origin/z。");
+                } catch (Exception ex) {
+                    log.error("生成子节点失败", ex);
+                    Throwable c = ex.getCause() != null ? ex.getCause() : ex;
+                    JMessageUtil.error("生成子节点失败: " + c.getMessage());
+                }
+            }
+        };
+        worker.execute();
+    }
+
+    private static int indexOfChildProperty(WzObject parent, WzVideoProperty video) {
+        List<WzImageProperty> list = switch (parent) {
+            case WzImage wi -> wi.getChildren();
+            case WzImageProperty wip when wip.isListProperty() -> wip.getChildren();
+            default -> null;
+        };
+        if (list == null) {
+            return -1;
+        }
+        for (int i = 0; i < list.size(); i++) {
+            if (list.get(i) == video) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     private VideoImageSequenceExporter.ExportStats exportPngJpg(

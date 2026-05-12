@@ -63,6 +63,27 @@ public abstract class WzImageProperty extends WzObject {
         return false;
     }
 
+    public boolean addChildAt(WzImageProperty child, int index) {
+        return addChildAt(child, index, false);
+    }
+
+    public boolean addChildAt(WzImageProperty child, int index, boolean isParseXml) {
+        if (children == null) {
+            return false;
+        }
+        if (children.addAt(index, child)) {
+            if (wzImage != null) {
+                if (!isParseXml) {
+                    setTempChanged(true);
+                    wzImage.setChanged(true);
+                    wzImage.setTempChanged(true);
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
     public void addChildren(List<WzImageProperty> children) {
         if (children == null) return;
         this.children.add(children);

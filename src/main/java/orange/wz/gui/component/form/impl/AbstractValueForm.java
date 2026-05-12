@@ -29,6 +29,14 @@ public abstract class AbstractValueForm {
     private EditPane editPane;
     private WzObject curWzObject;
 
+    protected EditPane getEditPane() {
+        return editPane;
+    }
+
+    protected WzObject getCurWzObject() {
+        return curWzObject;
+    }
+
     protected AbstractValueForm() {
         propertyMeaningArea.setEditable(false);
         propertyMeaningArea.setOpaque(false);

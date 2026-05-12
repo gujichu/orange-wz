@@ -263,6 +263,21 @@ public class WzImage extends WzObject {
         return false;
     }
 
+    public boolean addChildAt(WzImageProperty child, int index) {
+        return addChildAt(child, index, false);
+    }
+
+    public boolean addChildAt(WzImageProperty child, int index, boolean isParseXml) {
+        if (children.addAt(index, child)) {
+            if (!isParseXml) {
+                setChanged(true);
+                setTempChanged(true);
+            }
+            return true;
+        }
+        return false;
+    }
+
     public boolean removeChild(String name) {
         if (children.remove(name)) {
             setChanged(true);
