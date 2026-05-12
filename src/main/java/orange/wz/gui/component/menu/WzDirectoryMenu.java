@@ -13,6 +13,7 @@ import orange.wz.gui.component.panel.EditPane;
 import orange.wz.gui.utils.CanvasUtil;
 import orange.wz.gui.utils.CanvasUtilData;
 import orange.wz.gui.utils.JMessageUtil;
+import orange.wz.gui.utils.MultiNodeNameParser;
 import orange.wz.gui.utils.TreePathUtil;
 import orange.wz.provider.*;
 
@@ -127,15 +128,19 @@ public final class WzDirectoryMenu extends JPopupMenu {
 
             DefaultMutableTreeNode node = (DefaultMutableTreeNode) selectedPaths[0].getLastPathComponent();
 
-            NodeDialog nodeDialog = new NodeDialog("新增 Directory", editPane);
+            NodeDialog nodeDialog = new NodeDialog("新增 Directory", editPane, true);
             NodeFormData data = nodeDialog.getData();
 
             if (data == null) return;
 
-            String name = data.getName();
-
-            if (name.isEmpty()) {
+            List<String> names = MultiNodeNameParser.split(data.getName());
+            if (names.isEmpty()) {
                 JMessageUtil.error("名称不能为空");
+                return;
+            }
+            String dup = MultiNodeNameParser.firstDuplicate(names);
+            if (dup != null) {
+                JMessageUtil.error("名称重复: " + dup);
                 return;
             }
 
@@ -146,15 +151,21 @@ public final class WzDirectoryMenu extends JPopupMenu {
                 throw new RuntimeException();
             }
 
-            WzDirectory newDir = new WzDirectory(name, wzDirectory, wzFile);
-            if (!wzDirectory.addChild(newDir)) {
-                JMessageUtil.error("名称已存在");
-                return;
+            List<WzDirectory> created = new ArrayList<>(names.size());
+            for (String name : names) {
+                WzDirectory newDir = new WzDirectory(name, wzDirectory, wzFile);
+                if (!wzDirectory.addChild(newDir)) {
+                    JMessageUtil.error("名称已存在: " + name);
+                    return;
+                }
+                newDir.setTempChanged(true);
+                created.add(newDir);
             }
 
             if (node.isLeaf()) return; // isLeaf 说明未加载数据，就不要插入了
-            newDir.setTempChanged(true);
-            editPane.insertNodeToTree(node, newDir, true, 0);
+            for (int i = created.size() - 1; i >= 0; i--) {
+                editPane.insertNodeToTree(node, created.get(i), true, 0);
+            }
         });
     }
 
@@ -170,21 +181,26 @@ public final class WzDirectoryMenu extends JPopupMenu {
 
             DefaultMutableTreeNode node = (DefaultMutableTreeNode) selectedPaths[0].getLastPathComponent();
 
-            NodeDialog nodeDialog = new NodeDialog("新增 Image", editPane);
+            NodeDialog nodeDialog = new NodeDialog("新增 Image", editPane, true);
             NodeFormData data = nodeDialog.getData();
 
             if (data == null) return;
 
-            String name = data.getName();
-
-            if (name.isEmpty()) {
+            List<String> names = MultiNodeNameParser.split(data.getName());
+            if (names.isEmpty()) {
                 JMessageUtil.error("名称不能为空");
                 return;
             }
-
-            if (!name.endsWith(".img")) {
-                JMessageUtil.error("Image 名称需要以.img结尾");
+            String dup = MultiNodeNameParser.firstDuplicate(names);
+            if (dup != null) {
+                JMessageUtil.error("名称重复: " + dup);
                 return;
+            }
+            for (String name : names) {
+                if (!name.endsWith(".img")) {
+                    JMessageUtil.error("Image 名称需要以.img结尾: " + name);
+                    return;
+                }
             }
 
             WzDirectory wzDirectory = (WzDirectory) node.getUserObject();
@@ -194,15 +210,21 @@ public final class WzDirectoryMenu extends JPopupMenu {
                 throw new RuntimeException();
             }
 
-            WzImage newImg = new WzImage(name, wzDirectory, wzFile.getReader());
-            if (!wzDirectory.addChild(newImg)) {
-                JMessageUtil.error("名称已存在");
-                return;
+            List<WzImage> created = new ArrayList<>(names.size());
+            for (String name : names) {
+                WzImage newImg = new WzImage(name, wzDirectory, wzFile.getReader());
+                if (!wzDirectory.addChild(newImg)) {
+                    JMessageUtil.error("名称已存在: " + name);
+                    return;
+                }
+                newImg.setTempChanged(true);
+                created.add(newImg);
             }
 
             if (node.isLeaf()) return; // isLeaf 说明未加载数据，就不要插入了
-            newImg.setTempChanged(true);
-            editPane.insertNodeToTree(node, newImg, true, 0);
+            for (int i = created.size() - 1; i >= 0; i--) {
+                editPane.insertNodeToTree(node, created.get(i), true, 0);
+            }
         });
     }
 

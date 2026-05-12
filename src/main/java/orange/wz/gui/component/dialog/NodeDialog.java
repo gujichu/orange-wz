@@ -4,21 +4,44 @@ import orange.wz.gui.component.form.data.NodeFormData;
 import orange.wz.gui.component.panel.EditPane;
 
 import javax.swing.*;
+import javax.swing.text.JTextComponent;
+import java.awt.*;
 import java.awt.event.HierarchyEvent;
 
 public class NodeDialog extends BaseDialog<NodeFormData> {
-    protected final JTextField nameField = new JTextField(20);
+    protected final JTextComponent nameField;
 
     public NodeDialog(String title, EditPane editPane) {
-        this(title, "名称", editPane);
+        this(title, "名称", editPane, false);
+    }
+
+    /**
+     * @param multilineNames true 时使用多行输入（用于一次添加多个目录 / Image 等）
+     */
+    public NodeDialog(String title, EditPane editPane, boolean multilineNames) {
+        this(title, "名称", editPane, multilineNames);
     }
 
     public NodeDialog(String title, String fieldName, EditPane editPane) {
+        this(title, fieldName, editPane, false);
+    }
+
+    private NodeDialog(String title, String fieldName, EditPane editPane, boolean multilineNames) {
         super(title, editPane);
 
-        addRow(fieldName, nameField);
+        if (multilineNames) {
+            JTextArea nameArea = new JTextArea(5, 24);
+            nameArea.setLineWrap(true);
+            nameArea.setWrapStyleWord(true);
+            nameField = nameArea;
+            JScrollPane scroll = new JScrollPane(nameField);
+            scroll.setPreferredSize(new Dimension(320, 110));
+            addRow(fieldName, scroll);
+        } else {
+            nameField = new JTextField(20);
+            addRow(fieldName, nameField);
+        }
 
-        // 显示的时候光标聚焦在Name输入框
         nameField.addHierarchyListener(e -> {
             if ((e.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) != 0
                     && nameField.isShowing()) {
