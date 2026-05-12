@@ -5,11 +5,14 @@ import com.madgag.gif.fmsware.AnimatedGifEncoder;
 import lombok.extern.slf4j.Slf4j;
 import orange.wz.gui.MainFrame;
 import orange.wz.gui.component.dialog.VideoExportImagesDialog;
+import orange.wz.gui.component.dialog.VideoGenerateFrameNodesFormatDialog;
 import orange.wz.gui.component.form.data.VideoFormData;
 import orange.wz.gui.component.panel.EditPane;
 import orange.wz.gui.component.panel.ImagePanel;
 import orange.wz.gui.utils.JMessageUtil;
 import orange.wz.gui.video.CanvasVideoFfmpegDecoder;
+import orange.wz.gui.video.McvFileParser;
+import orange.wz.gui.video.McvHeader;
 import orange.wz.gui.video.VideoArgbFormatConverter;
 import orange.wz.gui.video.VideoImageBitDepth;
 import orange.wz.gui.video.VideoImageSequenceExporter;
@@ -56,6 +59,7 @@ public class VideoForm extends AbstractValueForm {
     private static final int ORIGIN_REF_X = 720;
     private static final int ORIGIN_REF_Y = 500;
 
+    /** 仅用于「播放」时的 FFmpeg 全量解码 */
     private SwingWorker<CanvasVideoFfmpegDecoder.DecodedVideo, Void> loadWorker;
     private Timer animTimer;
     private List<BufferedImage> frames;
@@ -63,6 +67,12 @@ public class VideoForm extends AbstractValueForm {
     private int frameIndex;
     private boolean playing;
     private byte[] lastMcvBytes;
+
+    /** 由 {@link McvFileParser} 解析得到，无需解码整段视频即可显示帧数与分辨率 */
+    private boolean metaReady;
+    private int cachedFrameCount;
+    private int cachedWidth;
+    private int cachedHeight;
 
     public VideoForm() {
         super();
@@ -140,56 +150,99 @@ public class VideoForm extends AbstractValueForm {
 
     protected void applyVideoPayload(String name, String type, byte[] mcvBytes, WzObject wzObject, EditPane editPane) {
         super.setData(name, type, wzObject, editPane);
-        stopPlayback();
+        discardDecodedFramesAndTimer();
+        metaReady = false;
+        cachedFrameCount = 0;
+        cachedWidth = 0;
+        cachedHeight = 0;
+        lastMcvBytes = mcvBytes;
+
+        if (mcvBytes == null || mcvBytes.length == 0) {
+            statusLabel.setText("无视频数据");
+            setVideoActionButtonsEnabled(false);
+            imageScroll.revalidate();
+            imageScroll.repaint();
+            return;
+        }
+
+        try {
+            McvHeader hdr = McvFileParser.parse(mcvBytes);
+            metaReady = true;
+            cachedFrameCount = hdr.getFrameCount();
+            cachedWidth = hdr.getWidth();
+            cachedHeight = hdr.getHeight();
+        } catch (Exception ex) {
+            log.warn("MCV 头解析失败", ex);
+            metaReady = false;
+            statusLabel.setText("视频头解析失败");
+            JMessageUtil.error("视频头解析失败: " + ex.getMessage());
+            setVideoActionButtonsEnabled(false);
+            imageScroll.revalidate();
+            imageScroll.repaint();
+            return;
+        }
+
+        if (cachedFrameCount <= 0) {
+            statusLabel.setText("无帧");
+            setVideoActionButtonsEnabled(false);
+        } else {
+            statusLabel.setText(cachedFrameCount + " 帧 · " + cachedWidth + "×" + cachedHeight + " · 点击「播放」解码预览");
+            setVideoActionButtonsEnabled(true);
+        }
+        imageScroll.revalidate();
+        imageScroll.repaint();
+    }
+
+    private void setVideoActionButtonsEnabled(boolean ok) {
+        btnPlay.setEnabled(ok);
+        btnExportVideo.setEnabled(ok);
+        btnExportImages.setEnabled(ok);
+        btnGenerateFrameNodes.setEnabled(ok);
+    }
+
+    /**
+     * 丢弃 FFmpeg 解码得到的帧缓存（保留 {@link #lastMcvBytes}，可再次播放或导出时按需解码）。
+     */
+    private void releaseDecodedVideoMemory() {
+        discardDecodedFramesAndTimer();
+        refreshVideoStatusHint();
+    }
+
+    private void discardDecodedFramesAndTimer() {
+        playing = false;
+        animTimer.stop();
+        btnPlay.setText("播放");
         if (loadWorker != null && !loadWorker.isDone()) {
             loadWorker.cancel(true);
         }
+        flushFrameList(frames);
         frames = null;
         delayMillis = null;
+        frameIndex = 0;
         imagePanel.setImage(null);
-        btnPlay.setEnabled(false);
-        btnExportVideo.setEnabled(false);
-        btnExportImages.setEnabled(false);
-        btnGenerateFrameNodes.setEnabled(false);
-        lastMcvBytes = mcvBytes;
+    }
 
-        statusLabel.setText("解码中…");
-        loadWorker = new SwingWorker<>() {
-            @Override
-            protected CanvasVideoFfmpegDecoder.DecodedVideo doInBackground() throws Exception {
-                return CanvasVideoFfmpegDecoder.decode(lastMcvBytes);
-            }
+    private void refreshVideoStatusHint() {
+        if (metaReady && cachedFrameCount > 0) {
+            statusLabel.setText(cachedFrameCount + " 帧 · " + cachedWidth + "×" + cachedHeight + " · 点击「播放」解码预览");
+        } else if (metaReady) {
+            statusLabel.setText("无帧");
+        } else {
+            statusLabel.setText(" ");
+        }
+        imageScroll.revalidate();
+        imageScroll.repaint();
+    }
 
-            @Override
-            protected void done() {
-                if (isCancelled()) {
-                    return;
-                }
-                try {
-                    CanvasVideoFfmpegDecoder.DecodedVideo v = get();
-                    frames = v.frames();
-                    delayMillis = v.delayMillis();
-                    if (!frames.isEmpty()) {
-                        imagePanel.setImage(frames.getFirst());
-                        statusLabel.setText(frames.size() + " 帧 · " + frames.getFirst().getWidth() + "×" + frames.getFirst().getHeight());
-                    } else {
-                        statusLabel.setText("无帧");
-                    }
-                    btnPlay.setEnabled(!frames.isEmpty());
-                    btnExportVideo.setEnabled(!frames.isEmpty());
-                    btnExportImages.setEnabled(!frames.isEmpty());
-                    btnGenerateFrameNodes.setEnabled(!frames.isEmpty());
-                    imageScroll.revalidate();
-                    imageScroll.repaint();
-                } catch (InterruptedException | ExecutionException ex) {
-                    log.error("视频解码失败", ex);
-                    Throwable c = ex.getCause() != null ? ex.getCause() : ex;
-                    statusLabel.setText("解码失败");
-                    JMessageUtil.error("视频解码失败: " + c.getMessage());
-                }
+    private static void flushFrameList(List<BufferedImage> list) {
+        if (list == null) {
+            return;
+        }
+        for (BufferedImage bi : list) {
+            if (bi != null) {
+                bi.flush();
             }
-        };
-        loadWorker.execute();
+        }
     }
 
     private void onAnimTick() {
@@ -205,35 +258,77 @@ public class VideoForm extends AbstractValueForm {
     }
 
     private void togglePlay() {
-        if (frames == null || frames.isEmpty()) {
-            return;
-        }
         if (playing) {
             stopPlayback();
-        } else {
-            playing = true;
-            frameIndex = 0;
-            imagePanel.setImage(frames.getFirst());
-            btnPlay.setText("暂停");
-            animTimer.stop();
-            animTimer.setInitialDelay(VideoPlaybackConstants.FRAME_INTERVAL_MS);
-            animTimer.setDelay(VideoPlaybackConstants.FRAME_INTERVAL_MS);
-            animTimer.start();
+            return;
         }
+        if (lastMcvBytes == null || lastMcvBytes.length == 0) {
+            return;
+        }
+        if (frames != null && !frames.isEmpty()) {
+            startAnimatingDecodedFrames();
+            return;
+        }
+        if (loadWorker != null && !loadWorker.isDone()) {
+            return;
+        }
+        statusLabel.setText("解码中…");
+        setVideoActionButtonsEnabled(false);
+        loadWorker = new SwingWorker<>() {
+            @Override
+            protected CanvasVideoFfmpegDecoder.DecodedVideo doInBackground() throws Exception {
+                return CanvasVideoFfmpegDecoder.decode(lastMcvBytes);
+            }
+
+            @Override
+            protected void done() {
+                if (metaReady && cachedFrameCount > 0) {
+                    setVideoActionButtonsEnabled(true);
+                }
+                if (isCancelled()) {
+                    refreshVideoStatusHint();
+                    return;
+                }
+                try {
+                    CanvasVideoFfmpegDecoder.DecodedVideo v = get();
+                    frames = v.frames();
+                    delayMillis = v.delayMillis();
+                    if (frames == null || frames.isEmpty()) {
+                        statusLabel.setText("无帧");
+                        releaseDecodedVideoMemory();
+                        return;
+                    }
+                    statusLabel.setText(frames.size() + " 帧 · " + cachedWidth + "×" + cachedHeight + " · 预览中");
+                    startAnimatingDecodedFrames();
+                } catch (InterruptedException | ExecutionException ex) {
+                    log.error("视频解码失败", ex);
+                    Throwable c = ex.getCause() != null ? ex.getCause() : ex;
+                    statusLabel.setText("解码失败");
+                    JMessageUtil.error("视频解码失败: " + c.getMessage());
+                    refreshVideoStatusHint();
+                }
+            }
+        };
+        loadWorker.execute();
+    }
+
+    private void startAnimatingDecodedFrames() {
+        playing = true;
+        frameIndex = 0;
+        imagePanel.setImage(frames.getFirst());
+        btnPlay.setText("暂停");
+        animTimer.stop();
+        animTimer.setInitialDelay(VideoPlaybackConstants.FRAME_INTERVAL_MS);
+        animTimer.setDelay(VideoPlaybackConstants.FRAME_INTERVAL_MS);
+        animTimer.start();
     }
 
     private void stopPlayback() {
-        playing = false;
-        animTimer.stop();
-        btnPlay.setText("播放");
-        if (frames != null && !frames.isEmpty()) {
-            frameIndex = 0;
-            imagePanel.setImage(frames.getFirst());
-        }
+        releaseDecodedVideoMemory();
     }
 
     private void exportVideo() {
-        if (lastMcvBytes == null || frames == null || frames.isEmpty()) {
+        if (lastMcvBytes == null || lastMcvBytes.length == 0 || !metaReady || cachedFrameCount <= 0) {
             return;
         }
         SystemFileChooser ch = new SystemFileChooser();
@@ -269,7 +364,18 @@ public class VideoForm extends AbstractValueForm {
         SwingWorker<Void, Void> w = new SwingWorker<>() {
             @Override
             protected Void doInBackground() throws Exception {
-                CanvasVideoFfmpegDecoder.exportVideoFromFrames(frames, fout.toPath(), asMp4);
+                List<BufferedImage> useFrames = frames;
+                if (useFrames == null || useFrames.isEmpty()) {
+                    CanvasVideoFfmpegDecoder.DecodedVideo v = CanvasVideoFfmpegDecoder.decode(lastMcvBytes);
+                    useFrames = v.frames();
+                    try {
+                        CanvasVideoFfmpegDecoder.exportVideoFromFrames(useFrames, fout.toPath(), asMp4);
+                    } finally {
+                        flushFrameList(useFrames);
+                    }
+                } else {
+                    CanvasVideoFfmpegDecoder.exportVideoFromFrames(useFrames, fout.toPath(), asMp4);
+                }
                 return null;
             }
 
@@ -282,6 +388,8 @@ public class VideoForm extends AbstractValueForm {
                     log.error("导出视频失败", ex);
                     Throwable c = ex.getCause() != null ? ex.getCause() : ex;
                     JMessageUtil.error("导出视频失败: " + c.getMessage());
+                } finally {
+                    releaseDecodedVideoMemory();
                 }
             }
         };
@@ -289,11 +397,12 @@ public class VideoForm extends AbstractValueForm {
     }
 
     private void exportImages() {
-        if (lastMcvBytes == null || frames == null || frames.isEmpty()) {
+        if (lastMcvBytes == null || lastMcvBytes.length == 0 || !metaReady || cachedFrameCount <= 0) {
             return;
         }
+        int dialogFrameCount = (frames != null && !frames.isEmpty()) ? frames.size() : cachedFrameCount;
         Window w = SwingUtilities.getWindowAncestor(valuePane);
-        VideoExportImagesDialog dlg = new VideoExportImagesDialog(w, frames.size());
+        VideoExportImagesDialog dlg = new VideoExportImagesDialog(w, Math.max(1, dialogFrameCount));
         VideoExportImagesDialog.Result r = dlg.openAndGetResult();
         if (r == null) {
             return;
@@ -317,12 +426,6 @@ public class VideoForm extends AbstractValueForm {
         VideoExportImagesDialog.ImageExportFormat fmt = r.getFormat();
         VideoImageBitDepth depth = r.getBitDepth();
         List<Integer> indices = r.getFrameIndices();
-        final int gifProgressTotal = frames.size() * 2 + 1;
-        final int barTotal = switch (fmt) {
-            case PNG, JPG -> Math.max(1, indices.size());
-            case GIF -> Math.max(1, gifProgressTotal);
-            default -> 1;
-        };
         BiConsumer<Integer, Integer> reportProgress = (done, total) -> SwingUtilities.invokeLater(() -> {
             MainFrame mf = MainFrame.getInstance();
             if (mf != null) {
@@ -333,19 +436,40 @@ public class VideoForm extends AbstractValueForm {
         SwingWorker<VideoImageSequenceExporter.ExportStats, Void> worker = new SwingWorker<>() {
             @Override
             protected VideoImageSequenceExporter.ExportStats doInBackground() throws Exception {
-                SwingUtilities.invokeLater(() -> {
-                    MainFrame mf = MainFrame.getInstance();
-                    if (mf != null) {
-                        mf.updateProgress(0, barTotal);
-                    }
-                });
-                Files.createDirectories(dirFinal);
-                return switch (fmt) {
-                    case PNG -> exportPngJpg(dirFinal, prefix, "png", indices, depth, reportProgress);
-                    case JPG -> exportPngJpg(dirFinal, prefix, "jpg", indices, depth, reportProgress);
-                    case GIF -> exportGifWithStats(dirFinal, prefix, depth, gifProgressTotal, reportProgress);
-                    default -> new VideoImageSequenceExporter.ExportStats(0, 0, List.of());
+                List<BufferedImage> localFrames = frames;
+                int[] localDelays = delayMillis;
+                boolean ownedDecode = false;
+                if (localFrames == null || localFrames.isEmpty()) {
+                    CanvasVideoFfmpegDecoder.DecodedVideo v = CanvasVideoFfmpegDecoder.decode(lastMcvBytes);
+                    localFrames = v.frames();
+                    localDelays = v.delayMillis();
+                    ownedDecode = true;
+                }
+                final int gifProgressTotal = localFrames.size() * 2 + 1;
+                final int barTotal = switch (fmt) {
+                    case PNG, JPG -> Math.max(1, indices.size());
+                    case GIF -> Math.max(1, gifProgressTotal);
+                    default -> 1;
                 };
+                try {
+                    SwingUtilities.invokeLater(() -> {
+                        MainFrame mf = MainFrame.getInstance();
+                        if (mf != null) {
+                            mf.updateProgress(0, barTotal);
+                        }
+                    });
+                    Files.createDirectories(dirFinal);
+                    return switch (fmt) {
+                        case PNG -> exportPngJpg(localFrames, dirFinal, prefix, "png", indices, depth, reportProgress);
+                        case JPG -> exportPngJpg(localFrames, dirFinal, prefix, "jpg", indices, depth, reportProgress);
+                        case GIF -> exportGifWithStats(localFrames, localDelays, dirFinal, prefix, depth, gifProgressTotal, reportProgress);
+                        default -> new VideoImageSequenceExporter.ExportStats(0, 0, List.of());
+                    };
+                } finally {
+                    if (ownedDecode) {
+                        flushFrameList(localFrames);
+                    }
+                }
             }
 
             @Override
@@ -358,6 +482,7 @@ public class VideoForm extends AbstractValueForm {
                     Throwable c = ex.getCause() != null ? ex.getCause() : ex;
                     JMessageUtil.error("导出图片失败: " + c.getMessage());
                 } finally {
+                    releaseDecodedVideoMemory();
                     SwingUtilities.invokeLater(() -> {
                         MainFrame mf = MainFrame.getInstance();
                         if (mf != null) {
@@ -372,10 +497,10 @@ public class VideoForm extends AbstractValueForm {
 
     /**
      * 在左侧树当前选中的视频节点之<strong>同级</strong>（同一父节点下）按帧数插入 Canvas 图片节点，名称 0～n-1，
-     * 每张为 ARGB8888（含 alpha），子属性 delay / origin / z。
+     * 每张格式由对话框选择，子属性 delay / origin / z。
      */
     private void generateFrameImageSiblingNodes() {
-        if (lastMcvBytes == null || frames == null || frames.isEmpty()) {
+        if (lastMcvBytes == null || lastMcvBytes.length == 0 || !metaReady || cachedFrameCount <= 0) {
             return;
         }
         EditPane editPane = getEditPane();
@@ -408,7 +533,7 @@ public class VideoForm extends AbstractValueForm {
             JMessageUtil.error("img 解析失败，无法添加节点。");
             return;
         }
-        int frameCount = frames.size();
+        int frameCount = (frames != null && !frames.isEmpty()) ? frames.size() : cachedFrameCount;
         for (int i = 0; i < frameCount; i++) {
             String nm = Integer.toString(i);
             if (parentWz instanceof WzImage wi && wi.existChild(nm)) {
@@ -436,32 +561,57 @@ public class VideoForm extends AbstractValueForm {
             return;
         }
 
+        Window owner = SwingUtilities.getWindowAncestor(valuePane);
+        VideoGenerateFrameNodesFormatDialog.Result formatChoice =
+                VideoGenerateFrameNodesFormatDialog.open(owner != null ? owner : valuePane);
+        if (formatChoice == null) {
+            return;
+        }
+        final WzPngFormat pngFormat = formatChoice.format();
+        final int pngScale = 0;
+
         btnGenerateFrameNodes.setEnabled(false);
         final WzObject parentRef = parentWz;
         final int videoIdx = videoDataIndex;
         final int treeIdx = videoTreeIndex;
         SwingWorker<List<WzCanvasProperty>, Void> worker = new SwingWorker<>() {
             @Override
-            protected List<WzCanvasProperty> doInBackground() {
-                List<WzCanvasProperty> built = new ArrayList<>(frameCount);
-                for (int i = 0; i < frameCount; i++) {
-                    BufferedImage raw = frames.get(i);
-                    BufferedImage argb = VideoArgbFormatConverter.apply(raw, VideoImageBitDepth.ARGB8888);
-                    int w = argb.getWidth();
-                    int h = argb.getHeight();
-                    int ox = (int) Math.round(ORIGIN_REF_X * (double) w / ORIGIN_REF_WIDTH);
-                    int oy = (int) Math.round(ORIGIN_REF_Y * (double) h / ORIGIN_REF_HEIGHT);
-                    String frameName = Integer.toString(i);
-                    WzCanvasProperty canvas = new WzCanvasProperty(frameName, parentRef, wzImage);
-                    canvas.initPngProperty(frameName, canvas, wzImage);
-                    canvas.setPng(argb, WzPngFormat.ARGB8888, 0);
-                    canvas.addChild(new WzIntProperty("delay", 60, canvas, wzImage));
-                    canvas.addChild(new WzVectorProperty("origin", ox, oy, canvas, wzImage));
-                    canvas.addChild(new WzIntProperty("z", 0, canvas, wzImage));
-                    canvas.setTempChanged(true);
-                    built.add(canvas);
+            protected List<WzCanvasProperty> doInBackground() throws Exception {
+                List<BufferedImage> src = frames;
+                boolean ownedDecode = false;
+                if (src == null || src.isEmpty()) {
+                    CanvasVideoFfmpegDecoder.DecodedVideo v = CanvasVideoFfmpegDecoder.decode(lastMcvBytes);
+                    src = v.frames();
+                    ownedDecode = true;
                 }
-                return built;
+                try {
+                    if (src.size() < frameCount) {
+                        throw new IllegalStateException("解码帧数与头信息不一致");
+                    }
+                    List<WzCanvasProperty> built = new ArrayList<>(frameCount);
+                    for (int i = 0; i < frameCount; i++) {
+                        BufferedImage raw = src.get(i);
+                        BufferedImage argb = VideoArgbFormatConverter.apply(raw, VideoImageBitDepth.ARGB8888);
+                        int w = argb.getWidth();
+                        int h = argb.getHeight();
+                        int ox = (int) Math.round(ORIGIN_REF_X * (double) w / ORIGIN_REF_WIDTH);
+                        int oy = (int) Math.round(ORIGIN_REF_Y * (double) h / ORIGIN_REF_HEIGHT);
+                        String frameName = Integer.toString(i);
+                        WzCanvasProperty canvas = new WzCanvasProperty(frameName, parentRef, wzImage);
+                        canvas.initPngProperty(frameName, canvas, wzImage);
+                        canvas.setPng(argb, pngFormat, pngScale);
+                        canvas.addChild(new WzIntProperty("delay", 60, canvas, wzImage));
+                        canvas.addChild(new WzVectorProperty("origin", ox, oy, canvas, wzImage));
+                        canvas.addChild(new WzIntProperty("z", 0, canvas, wzImage));
+                        canvas.setTempChanged(true);
+                        built.add(canvas);
+                    }
+                    return built;
+                } finally {
+                    if (ownedDecode) {
+                        flushFrameList(src);
+                    }
+                }
             }
 
             @Override
@@ -486,11 +636,14 @@ public class VideoForm extends AbstractValueForm {
                         }
                         editPane.insertNodeToTree(parentNode, canvas, true, treeIdx + 1 + k);
                     }
-                    JMessageUtil.info("已在视频同级添加 " + list.size() + " 个图片节点（名称 0～" + (list.size() - 1) + "），格式 ARGB8888，含 delay/origin/z。");
+                    JMessageUtil.info("已在视频同级添加 " + list.size() + " 个图片节点（名称 0～" + (list.size() - 1)
+                            + "），格式 " + pngFormat.name() + "，含 delay/origin/z。");
                 } catch (Exception ex) {
                     log.error("生成子节点失败", ex);
                     Throwable c = ex.getCause() != null ? ex.getCause() : ex;
                     JMessageUtil.error("生成子节点失败: " + c.getMessage());
+                } finally {
+                    releaseDecodedVideoMemory();
                 }
             }
         };
@@ -515,6 +668,7 @@ public class VideoForm extends AbstractValueForm {
     }
 
     private VideoImageSequenceExporter.ExportStats exportPngJpg(
+            List<BufferedImage> frameList,
             Path dir,
             String prefix,
             String ext,
@@ -527,10 +681,12 @@ public class VideoForm extends AbstractValueForm {
         }
         String formatName = "jpg".equalsIgnoreCase(ext) ? "jpg" : "png";
         return VideoImageSequenceExporter.exportByFrameIndicesParallel(
-                frames, sourceIndices, dir, prefix, ext, formatName, depth, progressCallback);
+                frameList, sourceIndices, dir, prefix, ext, formatName, depth, progressCallback);
     }
 
     private VideoImageSequenceExporter.ExportStats exportGifWithStats(
+            List<BufferedImage> frameList,
+            int[] delays,
             Path dir,
             String prefix,
             VideoImageBitDepth depth,
@@ -542,24 +698,24 @@ public class VideoForm extends AbstractValueForm {
         Path out = dir.resolve(prefix + ".gif");
         int withAlpha = 0;
         List<Integer> failed = new ArrayList<>();
-        List<BufferedImage> toEncode = new ArrayList<>(frames.size());
-        List<Integer> delays = new ArrayList<>(frames.size());
+        List<BufferedImage> toEncode = new ArrayList<>(frameList.size());
+        List<Integer> delayList = new ArrayList<>(frameList.size());
         int step = 0;
-        for (int i = 0; i < frames.size(); i++) {
+        for (int i = 0; i < frameList.size(); i++) {
             try {
-                BufferedImage raw = frames.get(i);
+                BufferedImage raw = frameList.get(i);
                 if (VideoArgbFormatConverter.hasNonFullyOpaqueAlpha(raw)) {
                     withAlpha++;
                 }
                 toEncode.add(VideoArgbFormatConverter.apply(raw, depth));
-                int d = delayMillis[i];
+                int d = delays[i];
                 if (d < 1) {
                     d = 1;
                 }
                 if (d > 60_000) {
                     d = 60_000;
                 }
-                delays.add(d);
+                delayList.add(d);
             } catch (Exception e) {
                 log.warn("GIF 预处理帧 {} 失败", i, e);
                 failed.add(i);
@@ -578,7 +734,7 @@ public class VideoForm extends AbstractValueForm {
         enc.setQuality(5);
         try {
             for (int i = 0; i < toEncode.size(); i++) {
-                enc.setDelay(delays.get(i));
+                enc.setDelay(delayList.get(i));
                 enc.addFrame(toEncode.get(i));
                 step++;
                 if (progressCallback != null) {
@@ -594,7 +750,7 @@ public class VideoForm extends AbstractValueForm {
             Files.deleteIfExists(out);
             throw new IOException("GIF 写入失败: " + e.getMessage(), e);
         }
-        return new VideoImageSequenceExporter.ExportStats(frames.size(), withAlpha, List.of());
+        return new VideoImageSequenceExporter.ExportStats(frameList.size(), withAlpha, List.of());
     }
 
     private static String buildExportImageReport(VideoImageSequenceExporter.ExportStats st, Path dir) {
@@ -621,9 +777,8 @@ public class VideoForm extends AbstractValueForm {
     public void onHide() {
         super.onHide();
         stopPlayback();
-        if (loadWorker != null && !loadWorker.isDone()) {
-            loadWorker.cancel(true);
-        }
+        lastMcvBytes = null;
+        metaReady = false;
     }
 
     @Override
