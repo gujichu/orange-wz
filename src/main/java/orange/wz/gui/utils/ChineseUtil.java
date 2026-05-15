@@ -96,24 +96,29 @@ public final class ChineseUtil {
         } else if (to instanceof WzListProperty toListProperty && from instanceof WzListProperty fromList) {
             toListProperty.getChildren().forEach(prop -> chineseImg(fromList.getChild(prop.getName()), prop));
         } else if (to instanceof WzCanvasProperty toCav && from instanceof WzCanvasProperty fromCav) {
-            double diff = differenceRate(fromCav.getImageBytes(false), toCav.getImageBytes(false));
-            if (fromCav.getWidth() == toCav.getWidth()
-                    && fromCav.getHeight() == toCav.getHeight()
-                    && fromCav.getFormat() == toCav.getFormat()
-                    && fromCav.getScale() == toCav.getScale()
-                    && diff == 0
-            ) {
-                // 完全相同释放内存
-                fromCav.clearImage();
-                toCav.clearImage();
-            } else if (fromCav.getHeight() == 1 && fromCav.getWidth() == 1) {
+            if (fromCav.getHeight() == 1 && fromCav.getWidth() == 1) {
                 // 来源方没有图片
                 fromCav.clearImage();
                 toCav.clearImage();
                 log.info("{} 来源图片为 1x1 空白图片，已跳过", fromCav.getPath());
             } else {
+                byte[] fromBytes = fromCav.getImageBytes(false);
+                byte[] toBytes = toCav.getImageBytes(false);
+                double diff = (fromBytes == null || toBytes == null) ? 1.0 : differenceRate(fromBytes, toBytes);
+                boolean identical = fromCav.getWidth() == toCav.getWidth()
+                        && fromCav.getHeight() == toCav.getHeight()
+                        && fromCav.getFormat() == toCav.getFormat()
+                        && fromCav.getScale() == toCav.getScale()
+                        && diff == 0;
+                // 路径一致时也列入对比界面，避免「扫描完毕找不到数据」；完全一致仍可释放解码缓存
                 imageCompareDialog.addCompare(toCav, fromCav);
-                log.debug("{} 差异率 {}", to.getPath(), diff);
+                if (!identical) {
+                    log.debug("{} 差异率 {}", to.getPath(), diff);
+                }
+                if (identical) {
+                    fromCav.clearImage();
+                    toCav.clearImage();
+                }
             }
         }
     }
