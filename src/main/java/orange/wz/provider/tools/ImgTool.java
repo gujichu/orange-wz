@@ -318,8 +318,8 @@ public final class ImgTool {
 
                             int relX = x + i;
                             int relY = y + j;
+                            // 宽高不必为 4 的倍数：末块为不完整 4×4，超出图像的采样点跳过（与 toDXT3 编码侧边界外填 0 一致）
                             if (relX >= width || relY >= height) {
-                                log.warn("宽高不是4的倍数 relX {} width {} relY {} height {}", relX, width, relY, height);
                                 continue;
                             }
                             int argbIndex = relY * width + relX;
@@ -396,8 +396,8 @@ public final class ImgTool {
 
                             int relX = x + i;
                             int relY = y + j;
+                            // 宽高不必为 4 的倍数：末块为不完整 4×4，超出图像的采样点跳过（与 toDXT5 编码侧边界外填 0 一致）
                             if (relX >= width || relY >= height) {
-                                log.warn("宽高不是4的倍数 relX {} width {} relY {} height {}", relX, width, relY, height);
                                 continue;
                             }
                             int argbIndex = relY * width + relX;
@@ -1350,7 +1350,12 @@ public final class ImgTool {
             case WzPngFormat.ARGB4444, WzPngFormat.FORMAT3, WzPngFormat.ARGB1555, WzPngFormat.RGB565, WzPngFormat.FORMAT517 ->
                     size / 2; // int 压缩成 short 大小减半
             case WzPngFormat.ARGB8888 -> size; // 原始数据
-            case WzPngFormat.DXT3, WzPngFormat.DXT5 -> size / 4; // 特殊压缩，大小为原来的1/4
+            // DXT3/DXT5：每 4×4 像素一块，每块 16 字节；宽高非 4 整除时块数进位，不能再用 width*height
+            case WzPngFormat.DXT3, WzPngFormat.DXT5 -> {
+                int blockW = (width + 3) / 4;
+                int blockH = (height + 3) / 4;
+                yield 16 * blockW * blockH;
+            }
             case BC7 -> (width & ~3) * (height & ~3); // 宽度高度不总是4的倍数，NX会额外添加行数来补齐
             default -> throw new IllegalArgumentException("未知的图片压缩格式 " + format);
         };
