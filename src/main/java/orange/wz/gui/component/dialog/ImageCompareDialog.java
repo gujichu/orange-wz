@@ -5,6 +5,7 @@ import orange.wz.provider.WzImageProperty;
 import orange.wz.provider.properties.WzCanvasProperty;
 import orange.wz.provider.properties.WzPngFormat;
 import orange.wz.provider.properties.WzPngProperty;
+import orange.wz.provider.properties.WzPngZlibCompressMode;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -14,6 +15,7 @@ import java.awt.image.BufferedImage;
 import java.util.*;
 import java.util.List;
 import java.util.prefs.Preferences;
+import java.util.zip.Deflater;
 
 public final class ImageCompareDialog extends JDialog {
 
@@ -228,7 +230,7 @@ public final class ImageCompareDialog extends JDialog {
         imageDiffFilterBtn = new JButton("图片差异筛选");
         JButton replaceBtn = new JButton("替换 (空格键)");
         autoRepairOnReplace = new JCheckBox("自动修补");
-        autoRepairOnReplace.setSelected(PREFS.getBoolean(PREF_AUTO_REPAIR_ON_REPLACE, false));
+        autoRepairOnReplace.setSelected(PREFS.getBoolean(PREF_AUTO_REPAIR_ON_REPLACE, true));
         autoRepairOnReplace.addItemListener(e ->
                 PREFS.putBoolean(PREF_AUTO_REPAIR_ON_REPLACE, autoRepairOnReplace.isSelected()));
 
@@ -282,8 +284,6 @@ public final class ImageCompareDialog extends JDialog {
         }
 
         BufferedImage image;
-        WzPngFormat format;
-        int scale;
 
         if (autoRepairOnReplace.isSelected()) {
             BufferedImage src = curFrom.getPngImage(false);
@@ -303,20 +303,20 @@ public final class ImageCompareDialog extends JDialog {
                 JOptionPane.showMessageDialog(this, "替换图尺寸无效，无法自动修补。", "替换", JOptionPane.ERROR_MESSAGE);
                 return;
             }
+            WzPngFormat leftFormat = curTo.getFormat();
+            int leftScale = curTo.getScale();
             image = fitImageToCanvas(src, tw, th, CanvasFitMode.FIT_INSIDE);
-            format = WzPngFormat.ARGB8888;
-            scale = 0;
+            curTo.setPng(image, leftFormat, leftScale, Deflater.BEST_COMPRESSION, WzPngZlibCompressMode.FILTERED);
         } else {
             image = curFrom.getPngImage(false);
             if (image == null) {
                 JOptionPane.showMessageDialog(this, "替换图解码失败。", "替换", JOptionPane.WARNING_MESSAGE);
                 return;
             }
-            format = curFrom.getFormat();
-            scale = curFrom.getScale();
+            curTo.setPng(image, curFrom.getFormat(), curFrom.getScale(),
+                    Deflater.BEST_COMPRESSION, WzPngZlibCompressMode.FILTERED);
         }
 
-        curTo.setPng(image, format, scale);
         curTo.clearImage();
         imagePanel1.setImage(image);
         refreshLeftImageInfo();
@@ -368,7 +368,9 @@ public final class ImageCompareDialog extends JDialog {
 
         BufferedImage out = fitImageToCanvas(src, tw, th, CanvasFitMode.FIT_TARGET_WIDTH);
 
-        curTo.setPng(out, WzPngFormat.ARGB8888, 0);
+        WzPngFormat leftFormat = curTo.getFormat();
+        int leftScale = curTo.getScale();
+        curTo.setPng(out, leftFormat, leftScale, Deflater.BEST_COMPRESSION, WzPngZlibCompressMode.FILTERED);
         curTo.clearImage();
         imagePanel1.setImage(out);
         refreshLeftImageInfo();
