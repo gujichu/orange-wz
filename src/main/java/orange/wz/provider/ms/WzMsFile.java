@@ -45,7 +45,25 @@ public final class WzMsFile {
             throw new RuntimeException("MS 文件读取失败或内容为空: " + msPath);
         }
 
-        String originalFileName = msPath.getFileName().toString().toLowerCase(Locale.ROOT);
+        String originalFileName = msPath.getFileName().toString();
+        List<String> errors = new ArrayList<>();
+        try {
+            return loadSnowV2(all, originalFileName, iv, userKey);
+        } catch (Exception e) {
+            errors.add("Snow2(v2): " + e.getMessage());
+            log.debug("MS Snow2 解析未命中 {}: {}", msPath, e.getMessage());
+        }
+        try {
+            return WzMsChaChaLoader.load(all, originalFileName, iv, userKey);
+        } catch (Exception e) {
+            errors.add("ChaCha20(v4): " + e.getMessage());
+            log.debug("MS ChaCha20 解析未命中 {}: {}", msPath, e.getMessage());
+        }
+        throw new RuntimeException("MS 文件解析失败: " + msPath + " [" + String.join("; ", errors) + "]");
+    }
+
+    private static List<EntryImage> loadSnowV2(byte[] all, String originalFileName, byte[] iv, byte[] userKey) {
+        originalFileName = originalFileName.toLowerCase(Locale.ROOT);
         ByteBuffer bb = ByteBuffer.wrap(all).order(ByteOrder.LITTLE_ENDIAN);
 
         int randByteCount = originalFileName.chars().sum() % WzMsConstants.RAND_BYTE_MOD + WzMsConstants.RAND_BYTE_OFFSET;
@@ -74,8 +92,8 @@ public final class WzMsFile {
         int hash = hb.getInt();
         int version = hb.get() & 0xFF;
         int entryCount = hb.getInt();
-        if (version != WzMsConstants.SUPPORTED_VERSION) {
-            throw new RuntimeException("不支持的 MS 版本: " + version);
+        if (version != WzMsConstants.SUPPORTED_VERSION_SNOW) {
+            throw new RuntimeException("不支持的 MS Snow2 版本: " + version);
         }
 
         int checkHash = hashedSaltLen + version + entryCount;
@@ -156,7 +174,7 @@ public final class WzMsFile {
         return result;
     }
 
-    private static WzImage tryParseImage(String imgName, byte[] imageBytes, byte[] uiIv, byte[] uiUserKey, List<String> attemptLogs, String modeTag) {
+    static WzImage tryParseImage(String imgName, byte[] imageBytes, byte[] uiIv, byte[] uiUserKey, List<String> attemptLogs, String modeTag) {
         List<NamedBytes> ivCandidates = new ArrayList<>();
         ivCandidates.add(new NamedBytes("WZ_CMS_IV", WzAESConstant.WZ_CMS_IV));
         ivCandidates.add(new NamedBytes("WZ_GMS_IV", WzAESConstant.WZ_GMS_IV));
@@ -280,7 +298,7 @@ public final class WzMsFile {
             for (int i = 0; i < saltLen; i++) {
                 sumSalt += saltBuffer.getShort() & 0xFFFF;
             }
-            int version = WzMsConstants.SUPPORTED_VERSION;
+            int version = WzMsConstants.SUPPORTED_VERSION_SNOW;
             int entryCount = entries.size();
             int hash = hashedSaltLen + version + entryCount + sumSalt;
 

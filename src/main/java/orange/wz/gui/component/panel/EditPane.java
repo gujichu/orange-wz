@@ -1134,7 +1134,7 @@ public final class EditPane extends JSplitPane {
                     if (file.isFile()) {
 
                         String name = file.getName().toLowerCase();
-                        if (!(name.endsWith(".xml") || name.endsWith(".wz") || name.endsWith(".img"))) {
+                        if (!(name.endsWith(".xml") || name.endsWith(".wz") || name.endsWith(".img") || name.endsWith(".ms"))) {
                             JMessageUtil.error("包含了未知的文件！");
                             return false;
                         }

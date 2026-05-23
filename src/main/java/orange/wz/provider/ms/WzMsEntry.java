@@ -19,11 +19,17 @@ public class WzMsEntry {
     @Setter
     private int unk1;
     private final int unk2;
+    private final int unk3;
+    private final int unk4;
     private byte[] entryKey;
     @Setter
     private byte[] data;
 
     public WzMsEntry(String name, int checkSum, int flags, int startPos, int size, int sizeAligned, int unk1, int unk2, byte[] entryKey) {
+        this(name, checkSum, flags, startPos, size, sizeAligned, unk1, unk2, entryKey, 0, 0);
+    }
+
+    public WzMsEntry(String name, int checkSum, int flags, int startPos, int size, int sizeAligned, int unk1, int unk2, byte[] entryKey, int unk3, int unk4) {
         this.name = name;
         this.checkSum = checkSum;
         this.flags = flags;
@@ -32,6 +38,8 @@ public class WzMsEntry {
         this.sizeAligned = sizeAligned;
         this.unk1 = unk1;
         this.unk2 = unk2;
+        this.unk3 = unk3;
+        this.unk4 = unk4;
         this.entryKey = entryKey;
     }
 

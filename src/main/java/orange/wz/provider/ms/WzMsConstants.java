@@ -4,7 +4,13 @@ public final class WzMsConstants {
     private WzMsConstants() {
     }
 
-    public static final int SUPPORTED_VERSION = 2;
+    /** Snow2 格式（Ms_File） */
+    public static final int SUPPORTED_VERSION_SNOW = 2;
+    /** ChaCha20 格式（Ms_FileV2） */
+    public static final int SUPPORTED_VERSION_CHACHA = 4;
+    /** @deprecated 使用 {@link #SUPPORTED_VERSION_SNOW} */
+    @Deprecated
+    public static final int SUPPORTED_VERSION = SUPPORTED_VERSION_SNOW;
     public static final int SNOW_KEY_LENGTH = 16;
     public static final int BLOCK_ALIGNMENT = 1024;
     public static final int PAGE_ALIGNMENT_MASK = 0x3FF;
