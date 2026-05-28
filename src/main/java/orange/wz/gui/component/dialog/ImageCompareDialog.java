@@ -17,7 +17,7 @@ import java.util.List;
 import java.util.prefs.Preferences;
 import java.util.zip.Deflater;
 
-public final class ImageCompareDialog extends JDialog {
+public final class ImageCompareDialog extends JFrame {
 
     private static final Preferences PREFS = Preferences.userNodeForPackage(ImageCompareDialog.class);
     private static final String PREF_AUTO_REPAIR_ON_REPLACE = "autoRepairOnReplace";
@@ -54,10 +54,14 @@ public final class ImageCompareDialog extends JDialog {
     private JButton imageDiffFilterBtn;
 
     public ImageCompareDialog(Frame owner) {
-        super(owner, "图片对比", false);
+        super("图片对比");
+        if (owner != null) {
+            setIconImage(owner.getIconImage());
+        }
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
+        setResizable(true);
         setSize(1000, 600);
-        setLocationRelativeTo(null);
+        setLocationRelativeTo(owner);
         setLayout(new BorderLayout(10, 10));
 
         add(buildMainPanel(), BorderLayout.CENTER);
@@ -171,6 +175,17 @@ public final class ImageCompareDialog extends JDialog {
         return new JScrollPane(stringList);
     }
 
+    private static JSlider createPreviewZoomSlider(ImagePanel imagePanel) {
+        JSlider slider = new JSlider(10, 300, 100);
+        slider.setMajorTickSpacing(50);
+        slider.setMinorTickSpacing(10);
+        slider.setPaintTicks(true);
+        slider.setPaintLabels(true);
+        slider.setToolTipText("拖动调节预览图片显示大小（10%–300%）");
+        slider.addChangeListener(e -> imagePanel.setZoomFactor(slider.getValue() / 100.0));
+        return slider;
+    }
+
     /**
      * 中 / 右 图片 + 参数
      */
@@ -178,10 +193,17 @@ public final class ImageCompareDialog extends JDialog {
         JPanel panel = new JPanel(new BorderLayout(5, 5));
         panel.setBorder(BorderFactory.createTitledBorder(title));
 
-        // 图片
         ImagePanel imageLabel = new ImagePanel();
         imageLabel.setPreferredSize(new Dimension(250, 250));
         imageLabel.setBorder(BorderFactory.createLineBorder(Color.GRAY));
+
+        JScrollPane imageScroll = new JScrollPane(imageLabel);
+        imageScroll.setHorizontalScrollBarPolicy(ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
+        imageScroll.setVerticalScrollBarPolicy(ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED);
+
+        JPanel imageColumn = new JPanel(new BorderLayout(5, 5));
+        imageColumn.add(imageScroll, BorderLayout.CENTER);
+        imageColumn.add(createPreviewZoomSlider(imageLabel), BorderLayout.SOUTH);
 
         // 参数信息（横向排列）
         JPanel info = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
@@ -195,7 +217,7 @@ public final class ImageCompareDialog extends JDialog {
         info.add(formatLabel);
         info.add(scaleLabel);
 
-        panel.add(imageLabel, BorderLayout.CENTER);
+        panel.add(imageColumn, BorderLayout.CENTER);
         panel.add(info, BorderLayout.SOUTH);
 
         if (first) {
@@ -455,10 +477,30 @@ public final class ImageCompareDialog extends JDialog {
     }
 
     private void refreshLeftImageInfo() {
-        widthLabel1.setText("Width: " + curTo.getWidth());
-        heightLabel1.setText("Height: " + curTo.getHeight());
-        formatLabel1.setText("Format: " + curTo.getFormat());
-        scaleLabel1.setText("Scale: " + curTo.getScale());
+        if (curTo != null && curFrom != null) {
+            updateImageInfoLabels(curTo, curFrom);
+        }
+    }
+
+    private void updateImageInfoLabels(WzCanvasProperty left, WzCanvasProperty right) {
+        widthLabel1.setText("Width: " + left.getWidth());
+        heightLabel1.setText("Height: " + left.getHeight());
+        formatLabel1.setText("Format: " + left.getFormat());
+        scaleLabel1.setText("Scale: " + left.getScale());
+
+        widthLabel2.setText("Width: " + right.getWidth());
+        heightLabel2.setText("Height: " + right.getHeight());
+        formatLabel2.setText("Format: " + right.getFormat());
+        scaleLabel2.setText("Scale: " + right.getScale());
+
+        setOriginalInfoDiffColor(widthLabel1, left.getWidth() != right.getWidth());
+        setOriginalInfoDiffColor(heightLabel1, left.getHeight() != right.getHeight());
+        setOriginalInfoDiffColor(formatLabel1, left.getFormat() != right.getFormat());
+        setOriginalInfoDiffColor(scaleLabel1, left.getScale() != right.getScale());
+    }
+
+    private static void setOriginalInfoDiffColor(JLabel label, boolean differs) {
+        label.setForeground(differs ? Color.RED : UIManager.getColor("Label.foreground"));
     }
 
     private static BufferedImage scaleToWidthArgb(BufferedImage src, int targetW) {
@@ -497,18 +539,10 @@ public final class ImageCompareDialog extends JDialog {
 
     private void onStringSelected(String value) {
         curTo = toMap.get(value);
-        imagePanel1.setImage(curTo.getPngImage(false));
-        widthLabel1.setText("Width: " + curTo.getWidth());
-        heightLabel1.setText("Height: " + curTo.getHeight());
-        formatLabel1.setText("Format: " + curTo.getFormat().toString());
-        scaleLabel1.setText("Scale: " + curTo.getScale());
-
         curFrom = fromMap.get(value);
+        imagePanel1.setImage(curTo.getPngImage(false));
         imagePanel2.setImage(curFrom.getPngImage(false));
-        widthLabel2.setText("Width: " + curFrom.getWidth());
-        heightLabel2.setText("Height: " + curFrom.getHeight());
-        formatLabel2.setText("Format: " + curFrom.getFormat().toString());
-        scaleLabel2.setText("Scale: " + curFrom.getScale());
+        updateImageInfoLabels(curTo, curFrom);
     }
 
     public void setStatus(String text) {

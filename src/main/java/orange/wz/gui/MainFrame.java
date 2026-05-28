@@ -79,7 +79,7 @@ public class MainFrame extends JFrame {
             UIManager.setLookAndFeel(new FlatLightLaf());
         } catch (Exception ignored) {
         }
-        setTitle("OrzRepacker顾及");
+        setTitle("OrzRepacker顾及20260523");
         setSize(1024, 768);
         setLocationRelativeTo(null);
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
