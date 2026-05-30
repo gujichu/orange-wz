@@ -65,6 +65,9 @@ public class ImageEditorCanvas extends JPanel {
     private float marchPhase;
     private boolean selectionDragActive;
 
+    private ImageEditorFreeTransform freeTransform;
+    private int freeTransformHandle = -1;
+
     private final ImageEditorHistory history = new ImageEditorHistory();
     private BufferedImage clipboardBuffer;
 
@@ -140,6 +143,15 @@ public class ImageEditorCanvas extends JPanel {
                 if (!hasImage() || !SwingUtilities.isLeftMouseButton(e)) {
                     return;
                 }
+                if (freeTransform != null) {
+                    int[] origin = imageOriginOnScreen();
+                    freeTransformHandle = freeTransform.hitTestHandle(e.getPoint(), origin[0], origin[1], zoom);
+                    if (freeTransformHandle >= 0) {
+                        freeTransform.beginHandleDrag(freeTransformHandle);
+                        dragging = true;
+                    }
+                    return;
+                }
                 if (currentTool == ImageEditorTool.PAN) {
                     Point imgPt = screenToImage(e.getPoint());
                     if (tryStartFloatDrag(imgPt)) {
@@ -181,6 +193,13 @@ public class ImageEditorCanvas extends JPanel {
                 if (!dragging || !hasImage()) {
                     return;
                 }
+                if (freeTransform != null) {
+                    freeTransform.endHandleDrag();
+                    freeTransformHandle = -1;
+                    dragging = false;
+                    repaintImageArea();
+                    return;
+                }
                 if (currentTool == ImageEditorTool.PAN) {
                     if (movingContent) {
                         finishFloatDrag();
@@ -213,6 +232,13 @@ public class ImageEditorCanvas extends JPanel {
             @Override
             public void mouseDragged(MouseEvent e) {
                 if (!dragging || !hasImage()) {
+                    return;
+                }
+                if (freeTransform != null && freeTransformHandle >= 0) {
+                    Point imgPt = screenToImage(e.getPoint());
+                    freeTransform.updateFromDrag(imgPt, e.isShiftDown());
+                    markImageDirty();
+                    repaintImageArea();
                     return;
                 }
                 if (currentTool == ImageEditorTool.PAN) {
@@ -264,6 +290,13 @@ public class ImageEditorCanvas extends JPanel {
                 if (!hasImage()) {
                     return;
                 }
+                if (freeTransform != null) {
+                    int[] origin = imageOriginOnScreen();
+                    int handle = freeTransform.hitTestHandle(e.getPoint(), origin[0], origin[1], zoom);
+                    setCursor(Cursor.getPredefinedCursor(
+                            handle >= 0 ? Cursor.CROSSHAIR_CURSOR : Cursor.DEFAULT_CURSOR));
+                    return;
+                }
                 Point p = screenToImage(e.getPoint());
                 updateStatus(String.format("坐标 (%d, %d)  缩放 %.0f%%", p.x, p.y, zoom * 100));
             }
@@ -299,19 +332,37 @@ public class ImageEditorCanvas extends JPanel {
         am.put("commitFloat", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                commitFloating();
+                if (freeTransform != null) {
+                    applyFreeTransform();
+                } else {
+                    commitFloating();
+                }
             }
         });
         im.put(KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0), "cancelFloat");
         am.put("cancelFloat", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                cancelFloating(false);
+                if (freeTransform != null) {
+                    cancelFreeTransform(false);
+                } else {
+                    cancelFloating(false);
+                }
+            }
+        });
+        im.put(KeyStroke.getKeyStroke(KeyEvent.VK_T, InputEvent.CTRL_DOWN_MASK), "freeTransform");
+        am.put("freeTransform", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                beginFreeTransform();
             }
         });
     }
 
     public void setImage(BufferedImage img, String historyLabel) {
+        if (freeTransform != null) {
+            cancelFreeTransform(true);
+        }
         layerStack.initFromImage(img);
         this.selection = null;
         invalidateSelectionOverlay();
@@ -394,6 +445,9 @@ public class ImageEditorCanvas extends JPanel {
     }
 
     public void clearSelection() {
+        if (freeTransform != null) {
+            cancelFreeTransform(true);
+        }
         selection = null;
         invalidateSelectionOverlay();
         cancelFloating(false);
@@ -413,7 +467,7 @@ public class ImageEditorCanvas extends JPanel {
     }
 
     private void syncMarchingAntsTimer() {
-        boolean active = !selectionDragActive && !movingContent && !movingLayer
+        boolean active = !selectionDragActive && !movingContent && !movingLayer && freeTransform == null
                 && (hasSelectionOutline(selection)
                 || (floatState != FloatState.NONE && hasSelectionOutline(floatingMask)));
         if (active) {
@@ -477,6 +531,9 @@ public class ImageEditorCanvas extends JPanel {
         if (marchingAntsTimer != null) {
             marchingAntsTimer.stop();
             marchingAntsTimer = null;
+        }
+        if (freeTransform != null) {
+            cancelFreeTransform(true);
         }
         history.clear();
         layerStack.initFromImage(null);
@@ -663,6 +720,84 @@ public class ImageEditorCanvas extends JPanel {
         ImageEditorUtil.compositeFloating(edit, floating, destX, destY, toLayerSelection(canvasMask));
     }
 
+    public void beginFreeTransform() {
+        if (!hasImage() || !layerStack.hasActiveLayer()) {
+            updateStatus("请先选择图层");
+            return;
+        }
+        if (freeTransform != null) {
+            return;
+        }
+        cancelFloating(false);
+
+        ImageEditorLayer layer = layerStack.getActiveLayer();
+        ImageEditorSelection canvasMask;
+        if (hasExplicitSelection()) {
+            canvasMask = selection;
+        } else {
+            Rectangle opaque = ImageEditorUtil.computeOpaqueBounds(layer.getContent());
+            if (opaque == null) {
+                opaque = new Rectangle(0, 0, layer.getContent().getWidth(), layer.getContent().getHeight());
+            }
+            canvasMask = ImageEditorSelection.rectangle(
+                    new Rectangle(opaque.x + layer.getOffsetX(), opaque.y + layer.getOffsetY(),
+                            opaque.width, opaque.height),
+                    canvasWidth(), canvasHeight());
+        }
+        if (canvasMask == null || canvasMask.isEmpty()) {
+            updateStatus("无法建立变换区域");
+            return;
+        }
+
+        ImageEditorSelection layerMask = toLayerSelection(canvasMask);
+        freeTransform = ImageEditorFreeTransform.begin(
+                layer.getContent(), layerMask, canvasMask,
+                layer.getOffsetX(), layer.getOffsetY(), canvasWidth(), canvasHeight());
+        ImageEditorUtil.clearSelectionPixels(layer.getContent(), layerMask);
+        markImageDirty();
+        selection = canvasMask;
+        invalidateSelectionOverlay();
+        repaintImageArea();
+        updateStatus("自由变换：拖动控制点缩放，Shift 等比，Enter 确认，Esc 取消");
+    }
+
+    private void applyFreeTransform() {
+        if (freeTransform == null) {
+            return;
+        }
+        BufferedImage edit = getEditImage();
+        if (edit == null) {
+            cancelFreeTransform(false);
+            return;
+        }
+        selection = freeTransform.apply(edit);
+        freeTransform = null;
+        freeTransformHandle = -1;
+        markImageDirty();
+        commitHistory("自由变换");
+        invalidateSelectionOverlay();
+        repaint();
+        updateStatus("已应用自由变换");
+    }
+
+    private void cancelFreeTransform(boolean silent) {
+        if (freeTransform == null) {
+            return;
+        }
+        BufferedImage edit = getEditImage();
+        if (edit != null) {
+            freeTransform.restoreSource(edit);
+        }
+        freeTransform = null;
+        freeTransformHandle = -1;
+        markImageDirty();
+        invalidateSelectionOverlay();
+        repaint();
+        if (!silent) {
+            updateStatus("已取消自由变换");
+        }
+    }
+
     private boolean tryStartFloatDrag(Point imgPt) {
         if (floatingImage == null || floatOrigin == null || floatingMask == null) {
             return false;
@@ -800,6 +935,20 @@ public class ImageEditorCanvas extends JPanel {
             int fh = (int) Math.ceil(floatingImage.getHeight() * zoom);
             g2.setComposite(AlphaComposite.SrcOver);
             g2.drawImage(floatingImage, fx, fy, fw, fh, null);
+        }
+
+        if (freeTransform != null) {
+            Rectangle tb = freeTransform.getCurrentBoundsCanvas();
+            int fx = ox + (int) Math.round(tb.x * zoom);
+            int fy = oy + (int) Math.round(tb.y * zoom);
+            int fw = Math.max(1, (int) Math.round(tb.width * zoom));
+            int fh = Math.max(1, (int) Math.round(tb.height * zoom));
+            g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            g2.setComposite(AlphaComposite.SrcOver);
+            g2.drawImage(freeTransform.renderPreview(), fx, fy, fw, fh, null);
+            freeTransform.drawOverlay(g2, ox, oy, zoom);
+            g2.dispose();
+            return;
         }
 
         drawSelectionOverlay(g2, ox, oy, selection);

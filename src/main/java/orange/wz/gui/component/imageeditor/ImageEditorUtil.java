@@ -177,6 +177,10 @@ public final class ImageEditorUtil {
     }
 
     private static BufferedImage extractMaskedSubimage(BufferedImage image, ImageEditorSelection selection) {
+        return extractMaskedSubimagePublic(image, selection);
+    }
+
+    public static BufferedImage extractMaskedSubimagePublic(BufferedImage image, ImageEditorSelection selection) {
         Rectangle bounds = selection.getBounds();
         BufferedImage sub = new BufferedImage(bounds.width, bounds.height, BufferedImage.TYPE_INT_ARGB);
         for (int y = 0; y < bounds.height; y++) {
@@ -189,6 +193,33 @@ public final class ImageEditorUtil {
             }
         }
         return sub;
+    }
+
+    /** 计算图像非透明像素的外接矩形，无内容时返回 null */
+    public static Rectangle computeOpaqueBounds(BufferedImage image) {
+        if (image == null) {
+            return null;
+        }
+        int w = image.getWidth();
+        int h = image.getHeight();
+        int minX = w;
+        int minY = h;
+        int maxX = -1;
+        int maxY = -1;
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                if (((image.getRGB(x, y) >> 24) & 0xFF) > 0) {
+                    minX = Math.min(minX, x);
+                    minY = Math.min(minY, y);
+                    maxX = Math.max(maxX, x);
+                    maxY = Math.max(maxY, y);
+                }
+            }
+        }
+        if (maxX < minX) {
+            return null;
+        }
+        return new Rectangle(minX, minY, maxX - minX + 1, maxY - minY + 1);
     }
 
     public static void adjustRgb(BufferedImage image, ImageEditorSelection selection, int deltaR, int deltaG, int deltaB) {
