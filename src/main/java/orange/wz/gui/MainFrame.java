@@ -7,6 +7,7 @@ import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import orange.wz.gui.component.FileDialog;
 import orange.wz.gui.component.dialog.LogDialog;
+import orange.wz.gui.component.imageeditor.ImageEditorFrame;
 import orange.wz.gui.component.form.impl.CanvasForm;
 import orange.wz.gui.component.key.KeyBox;
 import orange.wz.gui.component.key.KeyManager;
@@ -148,10 +149,15 @@ public class MainFrame extends JFrame {
         view.add(viewShow);
         view.add(viewSync);
 
+        JMenuItem imageEditor = new JMenuItem("图片编辑器", PngIcon);
+        imageEditor.setToolTipText("打开独立图片编辑器，支持选区、旋转、颜色调整、保存与压缩");
+        imageEditor.addActionListener(e -> ImageEditorFrame.open());
+
         JMenuItem clearCB = new JMenuItem("清空剪贴板");
         JMenuItem gc = new JMenuItem("内存回收");
 
         tools.add(selectCavBGC);
+        tools.add(imageEditor);
         tools.add(view);
         tools.add(clearCB);
         tools.add(gc);
