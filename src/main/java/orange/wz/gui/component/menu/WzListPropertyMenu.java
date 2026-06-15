@@ -72,6 +72,11 @@ public final class WzListPropertyMenu extends JPopupMenu {
         pasteBtn = new JMenuItem("粘贴", MdOutlineContentPaste);
         JMenuItem duplicateSiblingBtn = new JMenuItem("同节点复制");
         deleteBtn = new JMenuItem("删除节点", AiOutlineDelete);
+        JMenu exportBtn = new JMenu("导出");
+        JMenuItem exportImgBtn = new JMenuItem("Img");
+        JMenuItem exportXmlBtn = new JMenuItem("Xml");
+        exportBtn.add(exportImgBtn);
+        exportBtn.add(exportXmlBtn);
         JMenuItem chineseBtn = new JMenuItem("汉化");
         JMenuItem compareImgBtn = new JMenuItem("图片对比");
         JMenuItem imagePreviewBtn = new JMenuItem("动画预览");
@@ -102,6 +107,8 @@ public final class WzListPropertyMenu extends JPopupMenu {
         pasteBtn.addActionListener(e -> editPane.doPaste());
         duplicateSiblingBtn.addActionListener(e -> editPane.doDuplicateSibling());
         deleteBtnAction(deleteBtn);
+        addExportImgBtnAction(exportImgBtn);
+        addExportXmlBtnAction(exportXmlBtn);
         addChineseBtnAction(chineseBtn);
         compareImgBtn.addActionListener(e -> editPane.compareImg());
         addImagePreviewBtnAction(imagePreviewBtn);
@@ -120,6 +127,7 @@ public final class WzListPropertyMenu extends JPopupMenu {
         add(pasteBtn);
         add(duplicateSiblingBtn);
         add(deleteBtn);
+        add(exportBtn);
         add(chineseBtn);
         add(compareImgBtn);
         add(imagePreviewBtn);
@@ -132,6 +140,24 @@ public final class WzListPropertyMenu extends JPopupMenu {
         add(scaleImage);
         add(imageSize);
         add(changeNodeName);
+    }
+
+    private void addExportImgBtnAction(JMenuItem item) {
+        item.addActionListener(e -> {
+            TreePath[] selectedPaths = tree.getSelectionPaths();
+            if (selectedPaths == null) return;
+
+            editPane.exportImg(selectedPaths);
+        });
+    }
+
+    private void addExportXmlBtnAction(JMenuItem item) {
+        item.addActionListener(e -> {
+            TreePath[] selectedPaths = tree.getSelectionPaths();
+            if (selectedPaths == null) return;
+
+            editPane.exportXml(selectedPaths);
+        });
     }
 
     private void deleteBtnAction(JMenuItem item) {

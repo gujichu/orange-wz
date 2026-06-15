@@ -1729,6 +1729,19 @@ public final class EditPane extends JSplitPane {
                 throw new RuntimeException();
             }
             wzFile.exportFileToImg(folder, collector);
+        } else if (wzObject instanceof WzMsImageFile wzMsImageFile) {
+            if (!wzMsImageFile.parse()) {
+                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzMsImageFile.getName(), wzMsImageFile.getStatus().getMessage());
+                throw new RuntimeException();
+            }
+            wzMsImageFile.exportFileToImg(folder, collector);
+        } else if (wzObject instanceof WzImageProperty prop && prop.isListProperty() && prop.getParent() instanceof WzMsImageFile wzMsImageFile) {
+            if (!wzMsImageFile.parse()) {
+                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzMsImageFile.getName(), wzMsImageFile.getStatus().getMessage());
+                throw new RuntimeException();
+            }
+            String imgName = prop.getName().endsWith(".img") ? prop.getName() : prop.getName() + ".img";
+            collector.add(new Pair<>(wzMsImageFile.toExportImage(prop), folder.resolve(imgName)));
         } else if (wzObject instanceof WzImage wzImage) {
             Path p;
             if (wzImage instanceof WzXmlFile wzXmlFile) {
@@ -1822,6 +1835,19 @@ public final class EditPane extends JSplitPane {
             }
 
             wzFile.exportFileToXml(folder, collector);
+        } else if (wzObject instanceof WzMsImageFile wzMsImageFile) {
+            if (!wzMsImageFile.parse()) {
+                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzMsImageFile.getName(), wzMsImageFile.getStatus().getMessage());
+                throw new RuntimeException();
+            }
+            wzMsImageFile.exportFileToXml(folder, collector);
+        } else if (wzObject instanceof WzImageProperty prop && prop.isListProperty() && prop.getParent() instanceof WzMsImageFile wzMsImageFile) {
+            if (!wzMsImageFile.parse()) {
+                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzMsImageFile.getName(), wzMsImageFile.getStatus().getMessage());
+                throw new RuntimeException();
+            }
+            String filename = prop.getName().endsWith(".img") ? prop.getName() + ".xml" : prop.getName() + ".img.xml";
+            collector.add(new Pair<>(wzMsImageFile.toExportImage(prop), folder.resolve(filename)));
         } else if (wzObject instanceof WzImage wzImage) {
             String filename = wzImage.getName();
             if (!filename.endsWith(".xml")) {

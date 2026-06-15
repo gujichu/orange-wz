@@ -759,6 +759,7 @@
         name: '导出',
         command: undefined,
         children: [
+          { name: '导出 Img', command: 'exportImg' },
           { name: '导出 XML', command: 'exportXml' },
           { name: '导出 XML (紧凑)', command: 'exportXmlMini' },
         ],
@@ -784,6 +785,16 @@
       { name: '复制', command: 'copy' },
       { name: '粘贴', command: 'paste' },
       { name: '删除', command: 'delete' },
+      {
+        name: '导出',
+        command: undefined,
+        children: [
+          { name: '导出 Img', command: 'exportImg' },
+          { name: '导出 XML', command: 'exportXml' },
+          { name: '导出 XML (紧凑)', command: 'exportXmlMini' },
+        ],
+        divided: true,
+      },
       { name: 'outlink', command: 'outlink', divided: true },
     ];
   };

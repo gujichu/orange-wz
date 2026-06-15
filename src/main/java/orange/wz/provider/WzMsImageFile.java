@@ -3,12 +3,15 @@ package orange.wz.provider;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
+import orange.wz.exception.BizException;
+import orange.wz.exception.ExceptionEnum;
+import orange.wz.model.Pair;
 import orange.wz.provider.ms.WzMsFile;
+import orange.wz.provider.properties.WzListProperty;
+import orange.wz.provider.tools.BinaryReader;
 import orange.wz.provider.tools.FileTool;
 import orange.wz.provider.tools.WzFileStatus;
 import orange.wz.provider.tools.WzMutableKey;
-import orange.wz.provider.WzImageProperty;
-import orange.wz.provider.properties.WzListProperty;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -96,6 +99,52 @@ public class WzMsImageFile extends WzImageFile {
             log.error("MS 保存失败 {}: {}", getName(), e.getMessage(), e);
             return false;
         }
+    }
+
+    public void exportFileToImg(Path basePath, List<Pair<WzImage, Path>> collector) {
+        if (!parse()) {
+            throw new RuntimeException("MS 文件解析失败: " + getName());
+        }
+        String name = getName().replaceAll("(?i)\\.ms$", "");
+        Path folder = basePath.resolve(name);
+        try {
+            FileTool.createDirectory(folder);
+        } catch (IOException e) {
+            throw new BizException(ExceptionEnum.INTERNAL_SERVER_ERROR, "目录操作失败: " + folder + ", " + e.getMessage());
+        }
+        for (WzImageProperty wrapper : getChildren()) {
+            collector.add(new Pair<>(toExportImage(wrapper), folder.resolve(resolveImgFileName(wrapper.getName()))));
+        }
+    }
+
+    public void exportFileToXml(Path basePath, List<Pair<WzImage, Path>> collector) {
+        if (!parse()) {
+            throw new RuntimeException("MS 文件解析失败: " + getName());
+        }
+        Path folder = basePath.resolve(getName());
+        try {
+            FileTool.createDirectory(folder);
+        } catch (IOException e) {
+            throw new BizException(ExceptionEnum.INTERNAL_SERVER_ERROR, "目录操作失败: " + folder + ", " + e.getMessage());
+        }
+        for (WzImageProperty wrapper : getChildren()) {
+            String filename = resolveImgFileName(wrapper.getName()) + ".xml";
+            collector.add(new Pair<>(toExportImage(wrapper), folder.resolve(filename)));
+        }
+    }
+
+    public WzImage toExportImage(WzImageProperty wrapper) {
+        WzImage image = new WzImage(wrapper.getName(), null, new BinaryReader(getIv(), getKey()));
+        for (WzImageProperty child : wrapper.getChildren()) {
+            image.addChild(child.deepClone(image), true);
+        }
+        image.setChildrenWzImage();
+        image.setStatus(WzFileStatus.PARSE_SUCCESS);
+        return image;
+    }
+
+    private static String resolveImgFileName(String name) {
+        return name.endsWith(".img") ? name : name + ".img";
     }
 
     public boolean saveAsWz(Path outPath) {

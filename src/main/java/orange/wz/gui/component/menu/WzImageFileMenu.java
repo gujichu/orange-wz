@@ -77,7 +77,9 @@ public final class WzImageFileMenu extends JPopupMenu {
         pasteBtn = new JMenuItem("粘贴", MdOutlineContentPaste);
         JMenuItem keyBtn = new JMenuItem("修改密钥", AiOutlineKey);
         JMenu exportBtn = new JMenu("导出");
+        JMenuItem exportImgBtn = new JMenuItem("Img");
         JMenuItem exportXmlBtn = new JMenuItem("Xml");
+        exportBtn.add(exportImgBtn);
         exportBtn.add(exportXmlBtn);
         JMenuItem chineseBtn = new JMenuItem("汉化");
         JMenuItem compareImgBtn = new JMenuItem("图片对比");
@@ -112,6 +114,7 @@ public final class WzImageFileMenu extends JPopupMenu {
         copyBtn.addActionListener(e -> editPane.doCopy());
         pasteBtn.addActionListener(e -> editPane.doPaste());
         addKeyBtnAction(keyBtn);
+        addExportImgBtnAction(exportImgBtn);
         addExportXmlBtnAction(exportXmlBtn);
         addChineseBtnAction(chineseBtn);
         compareImgBtn.addActionListener(e -> editPane.compareImg());
@@ -203,6 +206,15 @@ public final class WzImageFileMenu extends JPopupMenu {
             if (selectedPaths == null) return;
 
             editPane.changeKey(selectedPaths);
+        });
+    }
+
+    private void addExportImgBtnAction(JMenuItem item) {
+        item.addActionListener(e -> {
+            TreePath[] selectedPaths = tree.getSelectionPaths();
+            if (selectedPaths == null) return;
+
+            editPane.exportImg(selectedPaths);
         });
     }
 
