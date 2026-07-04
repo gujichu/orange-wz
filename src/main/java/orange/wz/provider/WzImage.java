@@ -13,6 +13,7 @@ import orange.wz.provider.tools.CryptoConstants;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.regex.Pattern;
 
 @Getter
 @Setter
@@ -32,6 +33,9 @@ public class WzImage extends WzObject {
     public static final int withLuaFlag = 0x1;
     public static final int withOffsetFlag = 0x1B;
     public static final int withoutOffsetFlag = 0x73;
+
+    /** TMS273 中 Item/Etc 等 img 的子 list 名为纯数字时，导出为目录而非单文件 */
+    private static final Pattern NUMERIC_LIST_CONTAINER = Pattern.compile("\\d+");
 
     protected WzImage(String name, WzObject parent) {
         super(name, WzType.IMAGE, parent);
@@ -67,6 +71,17 @@ public class WzImage extends WzObject {
 
         if (!realParse) return true;
         reader.setPosition(offset);
+        if (TextImagePropertyReader.isTextPropertyV1(reader)) {
+            try {
+                TextImagePropertyReader.parseV1(reader.getAllData(), this);
+                status = WzFileStatus.PARSE_SUCCESS;
+                return true;
+            } catch (Exception e) {
+                status = WzFileStatus.ERROR_SPECIAL_ENCODE;
+                log.error("WzImage 文本 Property 解析错误: {}", name, e);
+                return false;
+            }
+        }
         byte b = reader.getByte();
         if (b == withLuaFlag) {
             if (!name.endsWith(".lua")) {
@@ -178,6 +193,48 @@ public class WzImage extends WzObject {
         }
         if (!parseStatus) unparse();
         return true;
+    }
+
+    public boolean exportToJson(Path path, int indent) {
+        boolean parseStatus = status == WzFileStatus.PARSE_SUCCESS;
+        if (!parseStatus) {
+            if (!parse()) {
+                log.error("解析文件失败");
+                return false;
+            }
+        }
+        JsonExport export = new JsonExport(this, indent);
+        if (!export.export(path)) {
+            return false;
+        }
+        if (!parseStatus) unparse();
+        return true;
+    }
+
+    /**
+     * img 顶层子节点均为数字命名的 list 时（如 {@code 0400.img} → {@code 0400/04000000.json}）。
+     */
+    public boolean isListContainerImage() {
+        List<WzImageProperty> list = getChildren();
+        if (list == null || list.isEmpty()) {
+            return false;
+        }
+        for (WzImageProperty child : list) {
+            if (!child.isListProperty() || !NUMERIC_LIST_CONTAINER.matcher(child.getName()).matches()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public WzImage exportFromListWrapper(WzListProperty wrapper) {
+        WzImage image = new WzImage(wrapper.getName(), null, reader);
+        for (WzImageProperty child : wrapper.getChildren()) {
+            image.addChild(child.deepClone(image), true);
+        }
+        image.setChildrenWzImage();
+        image.setStatus(WzFileStatus.PARSE_SUCCESS);
+        return image;
     }
 
     public void save(BinaryWriter writer) {

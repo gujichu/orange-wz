@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import orange.wz.exception.BizException;
 import orange.wz.exception.ExceptionEnum;
 import orange.wz.model.Pair;
+import orange.wz.provider.properties.WzListProperty;
 import orange.wz.provider.tools.*;
 
 import java.io.IOException;
@@ -261,6 +262,54 @@ public class WzDirectory extends WzObject {
 
         children.getDirectories().forEach(directory -> directory.exportToXml(p, collector));
         children.getImages().forEach(image -> collector.add(new Pair<>(image, p.resolve(image.getName() + ".xml"))));
+    }
+
+    public void exportToJson(Path parentPath, List<Pair<WzImage, Path>> collector) {
+        exportToJson(parentPath, collector, false);
+    }
+
+    public void exportToJson(Path parentPath, List<Pair<WzImage, Path>> collector, boolean mergeIntoParent) {
+        Path p;
+        try {
+            if (mergeIntoParent) {
+                p = parentPath;
+            } else {
+                String name = isWzFile()
+                        ? JsonExport.resolveExportRootFolderName(getName())
+                        : getName().replaceAll("(?i)\\.wz$", "");
+                p = parentPath.resolve(name);
+                FileTool.createDirectory(p);
+            }
+        } catch (IOException e) {
+            throw new BizException(ExceptionEnum.INTERNAL_SERVER_ERROR, "目录操作失败: " + parentPath + ", " + e.getMessage());
+        }
+
+        children.getDirectories().forEach(directory -> directory.exportToJson(p, collector, false));
+        children.getImages().forEach(image -> exportImageToJson(p, collector, image));
+    }
+
+    private void exportImageToJson(Path parentPath, List<Pair<WzImage, Path>> collector, WzImage image) {
+        if (!image.parse()) {
+            log.error("文件 {} 解析失败", image.getName());
+            throw new RuntimeException();
+        }
+        if (image.isListContainerImage()) {
+            Path dir = parentPath.resolve(JsonExport.resolveImageBaseName(image.getName()));
+            try {
+                FileTool.createDirectory(dir);
+            } catch (IOException e) {
+                throw new BizException(ExceptionEnum.INTERNAL_SERVER_ERROR, "目录操作失败: " + dir + ", " + e.getMessage());
+            }
+            for (WzImageProperty wrapper : image.getChildren()) {
+                if (!(wrapper instanceof WzListProperty listWrapper)) {
+                    continue;
+                }
+                WzImage subImage = image.exportFromListWrapper(listWrapper);
+                collector.add(new Pair<>(subImage, dir.resolve(JsonExport.resolveJsonFileName(wrapper.getName()))));
+            }
+            return;
+        }
+        collector.add(new Pair<>(image, parentPath.resolve(JsonExport.resolveJsonFileName(image.getName()))));
     }
 
     public void parseAllImagesForChangeKey(WzMutableKey wzMutableKey) {

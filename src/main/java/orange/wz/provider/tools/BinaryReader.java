@@ -285,4 +285,15 @@ public final class BinaryReader {
         result.get(bytes);
         return bytes;
     }
+
+    /** 返回缓冲区全部有效数据（不受当前 position 影响）。 */
+    public byte[] getAllData() {
+        ByteBuffer result = buffer.duplicate();
+        int pos = result.position();
+        result.position(0);
+        byte[] bytes = new byte[result.limit()];
+        result.get(bytes);
+        result.position(pos);
+        return bytes;
+    }
 }

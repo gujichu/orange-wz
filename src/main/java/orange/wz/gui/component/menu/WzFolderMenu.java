@@ -37,8 +37,10 @@ public final class WzFolderMenu extends JPopupMenu {
         JMenu exportBtn = new JMenu("导出");
         JMenuItem exportImgBtn = new JMenuItem("Img");
         JMenuItem exportXmlBtn = new JMenuItem("Xml");
+        JMenuItem exportJsonBtn = new JMenuItem("Json");
         exportBtn.add(exportImgBtn);
         exportBtn.add(exportXmlBtn);
+        exportBtn.add(exportJsonBtn);
 
         saveBtnAction(saveBtn);
         packageBtnAction(packageBtn);
@@ -47,6 +49,7 @@ public final class WzFolderMenu extends JPopupMenu {
         addKeyBtnAction(keyBtn);
         addExportImgBtnAction(exportImgBtn);
         addExportXmlBtnAction(exportXmlBtn);
+        addExportJsonBtnAction(exportJsonBtn);
 
         add(saveBtn);
         add(packageBtn);
@@ -230,6 +233,15 @@ public final class WzFolderMenu extends JPopupMenu {
             if (selectedPaths == null) return;
 
             editPane.exportXml(selectedPaths);
+        });
+    }
+
+    private void addExportJsonBtnAction(JMenuItem item) {
+        item.addActionListener(e -> {
+            TreePath[] selectedPaths = tree.getSelectionPaths();
+            if (selectedPaths == null) return;
+
+            editPane.exportJson(selectedPaths);
         });
     }
 }

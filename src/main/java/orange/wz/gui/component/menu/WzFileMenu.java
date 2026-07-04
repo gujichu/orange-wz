@@ -55,8 +55,10 @@ public final class WzFileMenu extends JPopupMenu {
         JMenu exportBtn = new JMenu("导出");
         JMenuItem exportImgBtn = new JMenuItem("Img");
         JMenuItem exportXmlBtn = new JMenuItem("Xml");
+        JMenuItem exportJsonBtn = new JMenuItem("Json");
         exportBtn.add(exportImgBtn);
         exportBtn.add(exportXmlBtn);
+        exportBtn.add(exportJsonBtn);
         JMenuItem importBtn = new JMenu("导入");
         JMenuItem importImgBtn = new JMenuItem("Img");
         JMenuItem importXmlBtn = new JMenuItem("Xml");
@@ -79,6 +81,7 @@ public final class WzFileMenu extends JPopupMenu {
         addKeyBtnAction(keyBtn);
         addExportImgBtnAction(exportImgBtn);
         addExportXmlBtnAction(exportXmlBtn);
+        addExportJsonBtnAction(exportJsonBtn);
         addImportImgBtnAction(importImgBtn);
         addImportXmlBtnAction(importXmlBtn);
         addChineseBtnAction(chineseBtn);
@@ -288,6 +291,15 @@ public final class WzFileMenu extends JPopupMenu {
             if (selectedPaths == null) return;
 
             editPane.exportXml(selectedPaths);
+        });
+    }
+
+    private void addExportJsonBtnAction(JMenuItem item) {
+        item.addActionListener(e -> {
+            TreePath[] selectedPaths = tree.getSelectionPaths();
+            if (selectedPaths == null) return;
+
+            editPane.exportJson(selectedPaths);
         });
     }
 

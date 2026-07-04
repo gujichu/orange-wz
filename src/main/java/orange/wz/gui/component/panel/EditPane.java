@@ -1911,6 +1911,135 @@ public final class EditPane extends JSplitPane {
         }.execute();
     }
 
+    /**
+     * 收集要导出的 JSON 节点
+     *
+     * @param node      要处理的节点
+     * @param folder    用于存放导出文件的文件夹
+     * @param collector 收集器
+     */
+    private void collectExportJson(DefaultMutableTreeNode node, Path folder, List<Pair<WzImage, Path>> collector) {
+        collectExportJson(node, folder, collector, false);
+    }
+
+    private void collectExportJson(DefaultMutableTreeNode node, Path folder, List<Pair<WzImage, Path>> collector, boolean exportRootResolved) {
+        WzObject wzObject = (WzObject) node.getUserObject();
+
+        if (wzObject instanceof WzFolder) {
+            expandTreeNode(node, false, false, false);
+            String name = JsonExport.resolveExportRootFolderName(wzObject.getName());
+            folder = folder.resolve(name);
+
+            int total = node.getChildCount();
+            int current = 0;
+            for (int i = 0; i < node.getChildCount(); i++) {
+                DefaultMutableTreeNode child = (DefaultMutableTreeNode) node.getChildAt(i);
+                collectExportJson(child, folder, collector, true);
+                MainFrame.getInstance().updateProgress(++current, total);
+            }
+        } else if (wzObject instanceof WzDirectory wzDir && wzDir.isWzFile()) {
+            WzFile wzFile = wzDir.getWzFile();
+
+            if (!wzFile.parse()) {
+                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzFile.getName(), wzFile.getStatus().getMessage());
+                throw new RuntimeException();
+            }
+
+            wzFile.exportFileToJson(folder, collector, exportRootResolved);
+        } else if (wzObject instanceof WzMsImageFile wzMsImageFile) {
+            if (!wzMsImageFile.parse()) {
+                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzMsImageFile.getName(), wzMsImageFile.getStatus().getMessage());
+                throw new RuntimeException();
+            }
+            wzMsImageFile.exportFileToJson(folder, collector, exportRootResolved);
+        } else if (wzObject instanceof WzImageProperty prop && prop.isListProperty() && prop.getParent() instanceof WzMsImageFile wzMsImageFile) {
+            if (!wzMsImageFile.parse()) {
+                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzMsImageFile.getName(), wzMsImageFile.getStatus().getMessage());
+                throw new RuntimeException();
+            }
+            String filename = JsonExport.resolveJsonFileName(prop.getName().endsWith(".img") ? prop.getName() : prop.getName() + ".img");
+            collector.add(new Pair<>(wzMsImageFile.toExportImage(prop), folder.resolve(filename)));
+        } else if (wzObject instanceof WzImage wzImage) {
+            if (!wzImage.parse()) {
+                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzImage.getName(), wzImage.getStatus().getMessage());
+                throw new RuntimeException();
+            }
+            if (wzImage.isListContainerImage()) {
+                Path dir = folder.resolve(JsonExport.resolveImageBaseName(wzImage.getName()));
+                for (WzImageProperty wrapper : wzImage.getChildren()) {
+                    if (!(wrapper instanceof WzListProperty listWrapper)) {
+                        continue;
+                    }
+                    collector.add(new Pair<>(
+                            wzImage.exportFromListWrapper(listWrapper),
+                            dir.resolve(JsonExport.resolveJsonFileName(wrapper.getName()))
+                    ));
+                }
+            } else {
+                String filename;
+                if (wzImage instanceof WzXmlFile wzXmlFile) {
+                    filename = JsonExport.resolveJsonFileName(wzXmlFile.getImgName());
+                } else {
+                    filename = JsonExport.resolveJsonFileName(wzImage.getName());
+                }
+                collector.add(new Pair<>(wzImage, folder.resolve(filename)));
+            }
+        }
+    }
+
+    /**
+     * 导出 JSON (MS273 风格)
+     *
+     * @param selectedPaths 要处理的节点
+     */
+    public void exportJson(TreePath[] selectedPaths) {
+        ExportJsonDialog dialog = new ExportJsonDialog(this);
+        ExportJsonData data = dialog.getData();
+        if (data == null) return;
+
+        Instant now = Instant.now();
+
+        new SwingWorker<>() {
+            @Override
+            protected Void doInBackground() {
+                int total = selectedPaths.length;
+                int finish = 0;
+                List<Pair<WzImage, Path>> collector = new ArrayList<>();
+                for (TreePath treePath : selectedPaths) {
+                    MainFrame.getInstance().setStatusText("开始收集并解析要导出的文件");
+                    DefaultMutableTreeNode node = (DefaultMutableTreeNode) treePath.getLastPathComponent();
+                    collectExportJson(node, Path.of(data.getExportPath()), collector);
+                    MainFrame.getInstance().updateProgress(++finish, total);
+                }
+
+                total = collector.size();
+                finish = 0;
+                MainFrame.getInstance().setStatusText("开始导出 JSON 文件");
+                for (Pair<WzImage, Path> pair : collector) {
+                    WzImage wzImage = pair.getLeft();
+                    Path path = pair.getRight();
+                    if (wzImage.exportToJson(path, data.getIndent())) {
+                        MainFrame.getInstance().updateProgress(++finish, total);
+                    } else {
+                        MainFrame.getInstance().setStatusText("%s 导出失败，请查看日志文件", wzImage.getName());
+                    }
+                }
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    get();
+                    Instant end = Instant.now();
+                    MainFrame.getInstance().setStatusText("JSON 导出完成，耗时 %d 秒", Duration.between(now, end).toSeconds());
+                } catch (Exception ex) {
+                    throw new RuntimeException(ex);
+                }
+            }
+        }.execute();
+    }
+
     // 修改密钥 ----------------------------------------------------------------------------------------------------------
 
     /**

@@ -10,6 +10,7 @@ import orange.wz.provider.ms.WzMsFile;
 import orange.wz.provider.properties.WzListProperty;
 import orange.wz.provider.tools.BinaryReader;
 import orange.wz.provider.tools.FileTool;
+import orange.wz.provider.tools.JsonExport;
 import orange.wz.provider.tools.WzFileStatus;
 import orange.wz.provider.tools.WzMutableKey;
 
@@ -129,6 +130,28 @@ public class WzMsImageFile extends WzImageFile {
         }
         for (WzImageProperty wrapper : getChildren()) {
             String filename = resolveImgFileName(wrapper.getName()) + ".xml";
+            collector.add(new Pair<>(toExportImage(wrapper), folder.resolve(filename)));
+        }
+    }
+
+    public void exportFileToJson(Path basePath, List<Pair<WzImage, Path>> collector) {
+        exportFileToJson(basePath, collector, false);
+    }
+
+    public void exportFileToJson(Path basePath, List<Pair<WzImage, Path>> collector, boolean mergeIntoParent) {
+        if (!parse()) {
+            throw new RuntimeException("MS 文件解析失败: " + getName());
+        }
+        Path folder = mergeIntoParent
+                ? basePath
+                : basePath.resolve(JsonExport.resolveExportRootFolderName(getName()));
+        try {
+            FileTool.createDirectory(folder);
+        } catch (IOException e) {
+            throw new BizException(ExceptionEnum.INTERNAL_SERVER_ERROR, "目录操作失败: " + folder + ", " + e.getMessage());
+        }
+        for (WzImageProperty wrapper : getChildren()) {
+            String filename = JsonExport.resolveJsonFileName(resolveImgFileName(wrapper.getName()));
             collector.add(new Pair<>(toExportImage(wrapper), folder.resolve(filename)));
         }
     }

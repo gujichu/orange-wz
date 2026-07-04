@@ -6,6 +6,7 @@ import orange.wz.provider.WzAESConstant;
 import orange.wz.provider.WzImage;
 import orange.wz.provider.tools.BinaryReader;
 import orange.wz.provider.tools.CryptoConstants;
+import orange.wz.provider.tools.TextImagePropertyReader;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
@@ -175,6 +176,17 @@ public final class WzMsFile {
     }
 
     static WzImage tryParseImage(String imgName, byte[] imageBytes, byte[] uiIv, byte[] uiUserKey, List<String> attemptLogs, String modeTag) {
+        if (TextImagePropertyReader.isTextPropertyV1(imageBytes)) {
+            WzImage image = new WzImage(imgName, new BinaryReader(imageBytes), null);
+            image.setDataSize(imageBytes.length);
+            image.setOffset(0);
+            if (image.parse()) {
+                attemptLogs.add(modeTag + ":text-property-v1:ok");
+                return image;
+            }
+            attemptLogs.add(modeTag + ":text-property-v1:fail(status=" + image.getStatus() + ")");
+        }
+
         List<NamedBytes> ivCandidates = new ArrayList<>();
         ivCandidates.add(new NamedBytes("WZ_CMS_IV", WzAESConstant.WZ_CMS_IV));
         ivCandidates.add(new NamedBytes("WZ_GMS_IV", WzAESConstant.WZ_GMS_IV));

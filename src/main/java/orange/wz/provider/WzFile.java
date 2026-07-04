@@ -262,6 +262,20 @@ public final class WzFile extends WzObject implements WzSavableFile {
         wzDirectory.exportToXml(basePath, collector);
     }
 
+    /**
+     * 导出 JSON
+     *
+     * @param basePath  上级路径
+     * @param collector 只收集需要导出的WzImage 存入 collector
+     */
+    public void exportFileToJson(Path basePath, List<Pair<WzImage, Path>> collector) {
+        exportFileToJson(basePath, collector, false);
+    }
+
+    public void exportFileToJson(Path basePath, List<Pair<WzImage, Path>> collector, boolean mergeIntoParent) {
+        wzDirectory.exportToJson(basePath, collector, mergeIntoParent);
+    }
+
     public void changeKey(short gameVersion, String keyBoxName, byte[] iv, byte[] key) {
         // 先解析把原有内容解码出来缓存在内存里
         if (!parse()) return;
