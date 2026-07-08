@@ -2,9 +2,8 @@ package orange.wz.gui.component.menu;
 
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
-import orange.wz.gui.MainFrame;
 import orange.wz.gui.component.panel.EditPane;
-import orange.wz.gui.utils.ChineseUtil;
+import orange.wz.gui.utils.ChineseReplaceLauncher;
 import orange.wz.provider.WzImage;
 import orange.wz.provider.WzImageProperty;
 import orange.wz.provider.WzObject;
@@ -12,8 +11,9 @@ import orange.wz.provider.WzObject;
 import javax.swing.*;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.TreePath;
-import java.time.Duration;
-import java.time.Instant;
+
+import java.util.ArrayList;
+import java.util.List;
 
 import static orange.wz.gui.Icons.AiOutlineCopy;
 import static orange.wz.gui.Icons.AiOutlineDelete;
@@ -69,26 +69,16 @@ public final class WzValuePropertyMenu extends JPopupMenu {
 
     private void addChineseBtnAction(JMenuItem item) {
         item.addActionListener(e -> {
-            Instant start = Instant.now();
             TreePath[] selectedPaths = tree.getSelectionPaths();
-            if (selectedPaths == null) return;
-
+            if (selectedPaths == null) {
+                return;
+            }
+            List<WzObject> roots = new ArrayList<>();
             for (TreePath treePath : selectedPaths) {
                 DefaultMutableTreeNode node = (DefaultMutableTreeNode) treePath.getLastPathComponent();
-                WzImageProperty to = (WzImageProperty) node.getUserObject();
-
-                WzImageProperty from = (WzImageProperty) MainFrame.getInstance().getCenterPane().getAnotherPane(editPane).findWzObjectInTreeByPath(to.getPath());
-                if (from == null) {
-                    log.error("找不到中文版本的 {}", to.getName());
-                    continue;
-                }
-
-                ChineseUtil.chinese(from, to);
+                roots.add((WzObject) node.getUserObject());
             }
-
-            Instant end = Instant.now();
-            Duration duration = Duration.between(start, end);
-            MainFrame.getInstance().setStatusText("汉化完成! 耗时 %d ms", duration.toMillis());
+            ChineseReplaceLauncher.openFromSelection(editPane, editPane, roots);
         });
     }
 }

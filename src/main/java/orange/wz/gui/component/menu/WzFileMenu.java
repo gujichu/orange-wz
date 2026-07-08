@@ -9,7 +9,7 @@ import orange.wz.gui.component.dialog.OverwriteChoice;
 import orange.wz.gui.component.dialog.OverwriteDialog;
 import orange.wz.gui.component.form.data.NodeFormData;
 import orange.wz.gui.component.panel.EditPane;
-import orange.wz.gui.utils.ChineseUtil;
+import orange.wz.gui.utils.ChineseReplaceLauncher;
 import orange.wz.gui.utils.JMessageUtil;
 import orange.wz.gui.utils.MultiNodeNameParser;
 import orange.wz.gui.utils.Outlink;
@@ -323,35 +323,22 @@ public final class WzFileMenu extends JPopupMenu {
 
     private void addChineseBtnAction(JMenuItem item) {
         item.addActionListener(e -> {
-            Instant start = Instant.now();
             TreePath[] selectedPaths = tree.getSelectionPaths();
-            if (selectedPaths == null) return;
+            if (selectedPaths == null) {
+                return;
+            }
 
-            DefaultMutableTreeNode rightTreeRoot = MainFrame.getInstance().getCenterPane().getAnotherPane(editPane).getTreeRoot();
+            List<WzObject> roots = new ArrayList<>();
             for (TreePath treePath : selectedPaths) {
                 DefaultMutableTreeNode node = (DefaultMutableTreeNode) treePath.getLastPathComponent();
                 WzDirectory wzDirectory = (WzDirectory) node.getUserObject();
                 WzFile to = wzDirectory.getWzFile();
-                if (to.getName().equalsIgnoreCase("List.wz")) return;
-                if (!to.parse()) {
-                    MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", to.getName(), to.getStatus().getMessage());
-                    throw new RuntimeException();
+                if (to.getName().equalsIgnoreCase("List.wz")) {
+                    continue;
                 }
-
-                DefaultMutableTreeNode rightNode = MainFrame.getInstance().getCenterPane().getAnotherPane(editPane).findTreeNodeByName(rightTreeRoot, to.getName());
-                if (rightNode == null) continue;
-                WzFile from = ((WzDirectory) rightNode.getUserObject()).getWzFile();
-                if (!from.parse()) {
-                    MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", from.getName(), from.getStatus().getMessage());
-                    throw new RuntimeException();
-                }
-
-                ChineseUtil.chinese(from, to);
+                roots.add(to);
             }
-
-            Instant end = Instant.now();
-            Duration duration = Duration.between(start, end);
-            MainFrame.getInstance().setStatusText("汉化完成! 耗时 %d ms", duration.toMillis());
+            ChineseReplaceLauncher.openFromSelection(editPane, editPane, roots);
         });
     }
 

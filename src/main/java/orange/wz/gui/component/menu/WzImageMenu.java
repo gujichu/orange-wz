@@ -740,34 +740,16 @@ public final class WzImageMenu extends JPopupMenu {
 
     private void addChineseBtnAction(JMenuItem item) {
         item.addActionListener(e -> {
-            Instant start = Instant.now();
             TreePath[] selectedPaths = tree.getSelectionPaths();
-            if (selectedPaths == null) return;
-
+            if (selectedPaths == null) {
+                return;
+            }
+            List<WzObject> roots = new ArrayList<>();
             for (TreePath treePath : selectedPaths) {
                 DefaultMutableTreeNode node = (DefaultMutableTreeNode) treePath.getLastPathComponent();
-                WzImage to = (WzImage) node.getUserObject();
-                if (!to.parse()) {
-                    MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", to.getName(), to.getStatus().getMessage());
-                    throw new RuntimeException();
-                }
-
-                WzImage from = (WzImage) MainFrame.getInstance().getCenterPane().getAnotherPane(editPane).findWzObjectInTreeByPath(to.getPath());
-                if (from == null) {
-                    log.error("找不到中文版本的 {}", to.getName());
-                    continue;
-                }
-                if (!from.parse()) {
-                    MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", from.getName(), from.getStatus().getMessage());
-                    throw new RuntimeException();
-                }
-
-                ChineseUtil.chinese(from, to);
+                roots.add((WzObject) node.getUserObject());
             }
-
-            Instant end = Instant.now();
-            Duration duration = Duration.between(start, end);
-            MainFrame.getInstance().setStatusText("汉化完成! 耗时 %d ms", duration.toMillis());
+            ChineseReplaceLauncher.openFromSelection(editPane, editPane, roots);
         });
     }
 

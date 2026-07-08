@@ -12,51 +12,76 @@ import orange.wz.provider.properties.WzCanvasProperty;
 import orange.wz.provider.properties.WzListProperty;
 import orange.wz.provider.properties.WzStringProperty;
 
+import java.util.List;
+import java.util.Objects;
+
 @Slf4j
 public final class ChineseUtil {
-    public static void chinese(WzObject from, WzObject to) {
-        if (from == null || to == null) return;
+
+    /**
+     * 扫描可替换项：路径匹配的 WzStringProperty，来源值非空且与目标不同即列入。
+     */
+    public static void collectReplacements(WzObject from, WzObject to, List<ChineseReplaceEntry> out) {
+        if (from == null || to == null) {
+            return;
+        }
 
         if (to instanceof WzFile toFile && from instanceof WzFile fromFile) {
-            if (!toFile.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", toFile.getName(), toFile.getStatus().getMessage());
-                throw new RuntimeException();
-            }
-            if (!fromFile.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", fromFile.getName(), fromFile.getStatus().getMessage());
-                throw new RuntimeException();
-            }
-
-            toFile.getWzDirectory().getDirectories().forEach(toDir -> chinese(fromFile.getWzDirectory().getDirectory(toDir.getName()), toDir));
-            toFile.getWzDirectory().getImages().forEach(toImage -> chinese(fromFile.getWzDirectory().getImage(toImage.getName()), toImage));
+            requireParsed(toFile);
+            requireParsed(fromFile);
+            toFile.getWzDirectory().getDirectories().forEach(toDir ->
+                    collectReplacements(fromFile.getWzDirectory().getDirectory(toDir.getName()), toDir, out));
+            toFile.getWzDirectory().getImages().forEach(toImage ->
+                    collectReplacements(fromFile.getWzDirectory().getImage(toImage.getName()), toImage, out));
         } else if (to instanceof WzDirectory toDirectory && from instanceof WzDirectory fromDirectory) {
-            toDirectory.getDirectories().forEach(toDir -> chinese(fromDirectory.getDirectory(toDir.getName()), toDir));
-            toDirectory.getImages().forEach(toImage -> chinese(fromDirectory.getImage(toImage.getName()), toImage));
+            if (toDirectory.isWzFile()) {
+                requireParsed(toDirectory.getWzFile());
+            }
+            if (fromDirectory.isWzFile()) {
+                requireParsed(fromDirectory.getWzFile());
+            }
+            toDirectory.getDirectories().forEach(toDir ->
+                    collectReplacements(fromDirectory.getDirectory(toDir.getName()), toDir, out));
+            toDirectory.getImages().forEach(toImage ->
+                    collectReplacements(fromDirectory.getImage(toImage.getName()), toImage, out));
         } else if (to instanceof WzImage toImage && from instanceof WzImage fromImage) {
-            if (!toImage.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", toImage.getName(), toImage.getStatus().getMessage());
-                throw new RuntimeException();
-            }
-            if (!fromImage.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", fromImage.getName(), fromImage.getStatus().getMessage());
-                throw new RuntimeException();
-            }
-            toImage.getChildren().forEach(img -> chinese(fromImage.getChild(img.getName()), img));
+            requireParsed(toImage);
+            requireParsed(fromImage);
+            toImage.getChildren().forEach(img -> collectReplacements(fromImage.getChild(img.getName()), img, out));
         } else if (to instanceof WzListProperty toListProperty && from instanceof WzListProperty fromList) {
-            toListProperty.getChildren().forEach(prop -> chinese(fromList.getChild(prop.getName()), prop));
+            toListProperty.getChildren().forEach(prop ->
+                    collectReplacements(fromList.getChild(prop.getName()), prop, out));
         } else if (to instanceof WzStringProperty toString && from instanceof WzStringProperty fromString) {
             String fromValue = fromString.getValue();
-            if (fromValue != null && !isChineseStr(toString.getValue()) && isChineseStr(fromValue)) {
-                toString.setTempChanged(true);
-                toString.getWzImage().setChanged(true);
-                toString.setValue(fromValue);
+            if (fromValue == null) {
+                return;
             }
+            String toValue = toString.getValue();
+            if (Objects.equals(fromValue, toValue)) {
+                return;
+            }
+            out.add(new ChineseReplaceEntry(toString.getPath(), toString, toValue, fromValue));
+        }
+    }
+
+    /** 直接批量替换（无预览窗口），规则与 {@link #collectReplacements} 一致。 */
+    public static void chinese(WzObject from, WzObject to) {
+        if (from == null || to == null) {
+            return;
+        }
+        java.util.ArrayList<ChineseReplaceEntry> entries = new java.util.ArrayList<>();
+        collectReplacements(from, to, entries);
+        for (ChineseReplaceEntry entry : entries) {
+            entry.apply();
         }
     }
 
     public static boolean isChineseStr(String str) {
-        return !str.matches(".*[\\uAC00-\\uD7A3].*")  // 不能有韩文
-                && str.matches(".*[\\u4e00-\\u9fa5].*");  // 有中文字符
+        if (str == null || str.isEmpty()) {
+            return false;
+        }
+        return !str.matches(".*[\\uAC00-\\uD7A3].*")
+                && str.matches(".*[\\u4e00-\\u9fa5].*");
     }
 
     private static ImageCompareDialog imageCompareDialog;
@@ -70,7 +95,9 @@ public final class ChineseUtil {
     }
 
     public static void chineseImg(WzObject from, WzObject to) {
-        if (from == null || to == null) return;
+        if (from == null || to == null) {
+            return;
+        }
 
         if (to instanceof WzDirectory toDirectory && from instanceof WzDirectory fromDirectory) {
             if (toDirectory.isWzFile() && !toDirectory.getWzFile().parse()) {
@@ -98,7 +125,6 @@ public final class ChineseUtil {
             toListProperty.getChildren().forEach(prop -> chineseImg(fromList.getChild(prop.getName()), prop));
         } else if (to instanceof WzCanvasProperty toCav && from instanceof WzCanvasProperty fromCav) {
             if (fromCav.getHeight() == 1 && fromCav.getWidth() == 1) {
-                // 来源方没有图片
                 fromCav.clearImage();
                 toCav.clearImage();
                 log.info("{} 来源图片为 1x1 空白图片，已跳过", fromCav.getPath());
@@ -111,7 +137,6 @@ public final class ChineseUtil {
                         && fromCav.getFormat() == toCav.getFormat()
                         && fromCav.getScale() == toCav.getScale()
                         && diff == 0;
-                // 路径一致时也列入对比界面，避免「扫描完毕找不到数据」；完全一致仍可释放解码缓存
                 imageCompareDialog.addCompare(toCav, fromCav);
                 if (!identical) {
                     log.debug("{} 差异率 {}", to.getPath(), diff);
@@ -124,29 +149,31 @@ public final class ChineseUtil {
         }
     }
 
-    /**
-     * 计算两个 byte 数组的差异率
-     *
-     * @param a 第一个数组
-     * @param b 第二个数组
-     * @return 差异率，范围 0.0 ~ 1.0
-     * @throws IllegalArgumentException 如果数组长度不同
-     */
+    private static void requireParsed(WzFile file) {
+        if (!file.parse()) {
+            MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", file.getName(), file.getStatus().getMessage());
+            throw new RuntimeException();
+        }
+    }
+
+    private static void requireParsed(WzImage image) {
+        if (!image.parse()) {
+            MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", image.getName(), image.getStatus().getMessage());
+            throw new RuntimeException();
+        }
+    }
+
     public static double differenceRate(byte[] a, byte[] b) {
-        if (a.length != b.length) {
+        if (a == null || b == null || a.length != b.length) {
             return 1.0;
         }
 
         int diffCount = 0;
-        int len = a.length;
-
-        // 用简单循环比较
-        for (int i = 0; i < len; i++) {
+        for (int i = 0; i < a.length; i++) {
             if (a[i] != b[i]) {
                 diffCount++;
             }
         }
-
-        return (double) diffCount / len;
+        return (double) diffCount / a.length;
     }
 }

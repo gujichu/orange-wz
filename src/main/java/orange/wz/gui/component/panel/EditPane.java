@@ -952,29 +952,112 @@ public final class EditPane extends JSplitPane {
     }
 
     /**
-     * 根据路径在树里查找 WzObject
+     * 根据路径在树里查找 WzObject；先全路径匹配，再按 .wz/.img 等锚点文件后缀匹配。
      *
      * @param path 用 / 隔开，不含 Root
      * @return WzObject
      */
     public WzObject findWzObjectInTreeByPath(String path) {
+        if (path == null || path.isEmpty()) {
+            return null;
+        }
+        WzObject found = locateWzObjectByPathFromRoot(path);
+        if (found != null) {
+            return found;
+        }
+        String anchored = anchorPathSuffix(path);
+        if (anchored == null || anchored.equals(path)) {
+            return locateWzObjectByAnchoredPath(anchored != null ? anchored : path);
+        }
+        found = locateWzObjectByPathFromRoot(anchored);
+        if (found != null) {
+            return found;
+        }
+        return locateWzObjectByAnchoredPath(anchored);
+    }
+
+    private WzObject locateWzObjectByPathFromRoot(String path) {
         DefaultMutableTreeNode node = treeRoot;
         String[] paths = path.split("/");
         for (int i = 0; i < paths.length; i++) {
             node = findTreeNodeByName(node, paths[i]);
-            if (node == null) break;
-
+            if (node == null) {
+                return null;
+            }
             if (i == paths.length - 1) {
                 return (WzObject) node.getUserObject();
-            } else {
-                if (node.isLeaf()) {
-                    handleTreeDoubleClick(node);
-                } else {
-                    tree.expandPath(new TreePath(node.getPath()));
-                }
+            }
+            prepareTreeNodeForDescent(node);
+        }
+        return null;
+    }
+
+    private WzObject locateWzObjectByAnchoredPath(String anchoredPath) {
+        if (anchoredPath == null || anchoredPath.isEmpty()) {
+            return null;
+        }
+        String[] parts = anchoredPath.split("/");
+        DefaultMutableTreeNode node = findTreeNodeByAnchorName(treeRoot, parts[0]);
+        if (node == null) {
+            return null;
+        }
+        for (int i = 1; i < parts.length; i++) {
+            node = findTreeNodeByName(node, parts[i]);
+            if (node == null) {
+                return null;
+            }
+            if (i < parts.length - 1) {
+                prepareTreeNodeForDescent(node);
             }
         }
+        return (WzObject) node.getUserObject();
+    }
 
+    private void prepareTreeNodeForDescent(DefaultMutableTreeNode node) {
+        if (node.isLeaf()) {
+            handleTreeDoubleClick(node);
+        } else {
+            tree.expandPath(new TreePath(node.getPath()));
+        }
+    }
+
+    static String anchorPathSuffix(String path) {
+        if (path == null || path.isEmpty()) {
+            return path;
+        }
+        String[] parts = path.split("/");
+        for (int i = 0; i < parts.length; i++) {
+            if (isAnchorFileName(parts[i])) {
+                return String.join("/", java.util.Arrays.copyOfRange(parts, i, parts.length));
+            }
+        }
+        return path;
+    }
+
+    static boolean isAnchorFileName(String name) {
+        if (name == null) {
+            return false;
+        }
+        String lower = name.toLowerCase();
+        return lower.endsWith(".wz") || lower.endsWith(".img")
+                || lower.endsWith(".xml") || lower.endsWith(".ms");
+    }
+
+    private DefaultMutableTreeNode findTreeNodeByAnchorName(DefaultMutableTreeNode root, String anchorName) {
+        java.util.ArrayDeque<DefaultMutableTreeNode> queue = new java.util.ArrayDeque<>();
+        queue.add(root);
+        while (!queue.isEmpty()) {
+            DefaultMutableTreeNode node = queue.poll();
+            Object userObject = node.getUserObject();
+            if (userObject instanceof WzObject wzObject
+                    && anchorName.equals(wzObject.getName())
+                    && isAnchorFileName(wzObject.getName())) {
+                return node;
+            }
+            for (int i = 0; i < node.getChildCount(); i++) {
+                queue.add((DefaultMutableTreeNode) node.getChildAt(i));
+            }
+        }
         return null;
     }
 

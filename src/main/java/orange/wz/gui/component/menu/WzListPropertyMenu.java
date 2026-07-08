@@ -693,26 +693,16 @@ public final class WzListPropertyMenu extends JPopupMenu {
 
     private void addChineseBtnAction(JMenuItem item) {
         item.addActionListener(e -> {
-            Instant start = Instant.now();
             TreePath[] selectedPaths = tree.getSelectionPaths();
-            if (selectedPaths == null) return;
-
+            if (selectedPaths == null) {
+                return;
+            }
+            List<WzObject> roots = new ArrayList<>();
             for (TreePath treePath : selectedPaths) {
                 DefaultMutableTreeNode node = (DefaultMutableTreeNode) treePath.getLastPathComponent();
-                WzImageProperty to = (WzImageProperty) node.getUserObject();
-
-                WzImageProperty from = (WzImageProperty) MainFrame.getInstance().getCenterPane().getAnotherPane(editPane).findWzObjectInTreeByPath(to.getPath());
-                if (from == null) {
-                    log.error("找不到中文版本的 {}", to.getName());
-                    continue;
-                }
-
-                ChineseUtil.chinese(from, to);
+                roots.add((WzObject) node.getUserObject());
             }
-
-            Instant end = Instant.now();
-            Duration duration = Duration.between(start, end);
-            MainFrame.getInstance().setStatusText("汉化完成! 耗时 %d ms", duration.toMillis());
+            ChineseReplaceLauncher.openFromSelection(editPane, editPane, roots);
         });
     }
 
