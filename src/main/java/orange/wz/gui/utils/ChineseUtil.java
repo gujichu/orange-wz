@@ -3,6 +3,7 @@ package orange.wz.gui.utils;
 import lombok.extern.slf4j.Slf4j;
 import orange.wz.gui.MainFrame;
 import orange.wz.gui.component.dialog.ImageCompareDialog;
+import orange.wz.gui.component.panel.EditPane;
 import orange.wz.provider.WzDirectory;
 import orange.wz.provider.WzFile;
 import orange.wz.provider.WzImage;
@@ -60,8 +61,8 @@ public final class ChineseUtil {
 
     private static ImageCompareDialog imageCompareDialog;
 
-    public static void initChineseImg() {
-        imageCompareDialog = new ImageCompareDialog(MainFrame.getInstance());
+    public static void initChineseImg(EditPane toEditPane, EditPane fromEditPane) {
+        imageCompareDialog = new ImageCompareDialog(MainFrame.getInstance(), toEditPane, fromEditPane);
     }
 
     public static void completeChineseImg() {

@@ -6,12 +6,14 @@ import com.google.gson.JsonObject;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import orange.wz.gui.component.FileDialog;
+import orange.wz.gui.component.dialog.LoadHistoryDialog;
 import orange.wz.gui.component.dialog.LogDialog;
 import orange.wz.gui.component.imageeditor.ImageEditorFrame;
 import orange.wz.gui.component.form.impl.CanvasForm;
 import orange.wz.gui.component.key.KeyBox;
 import orange.wz.gui.component.key.KeyManager;
 import orange.wz.gui.component.panel.CenterPane;
+import orange.wz.gui.utils.LoadHistoryStorage;
 import orange.wz.gui.utils.MemoryReclaimer;
 import orange.wz.gui.utils.UrlUtil;
 import orange.wz.manager.ServerManager;
@@ -111,12 +113,14 @@ public class MainFrame extends JFrame {
         JMenu fileMenu = new JMenu("文件");
 
         JMenuItem openFiles = new JMenuItem("加载文件 wz/img/xml", FcFileIcon);
+        JMenuItem loadHistory = new JMenuItem("加载历史", AiOutlineReloadIcon);
         JMenuItem openFolders = new JMenuItem("加载文件夹...", FcFolderIcon);
         JMenuItem newWz = new JMenuItem("新建 Wz", AiOutlineFileWordIcon);
         JMenuItem newImg = new JMenuItem("新建 Img", AiOutlineFileMarkdownIcon);
         JMenuItem unloadAll = new JMenuItem("卸载全部", AiOutlineCloseIcon);
 
         fileMenu.add(openFiles);
+        fileMenu.add(loadHistory);
         fileMenu.add(openFolders);
         fileMenu.add(newWz);
         fileMenu.add(newImg);
@@ -197,11 +201,12 @@ public class MainFrame extends JFrame {
 
         openFiles.addActionListener(e -> {
             List<File> files = orange.wz.gui.component.FileDialog.chooseOpenFiles(new String[]{"wz", "img", "xml", "ms"});
-            centerPane.getLeftEditPane().loadFiles(files);
+            loadFilesWithHistory(files);
         });
+        loadHistory.addActionListener(e -> LoadHistoryDialog.show(this, this::loadFilesWithHistory));
         openFolders.addActionListener(e -> {
             List<File> files = FileDialog.chooseOpenFolders();
-            centerPane.getLeftEditPane().loadFiles(files);
+            loadFilesWithHistory(files);
         });
         unloadAll.addActionListener(e -> {
             centerPane.getLeftEditPane().unloadAll();
@@ -247,6 +252,14 @@ public class MainFrame extends JFrame {
         newImg.addActionListener(e -> centerPane.getLeftEditPane().createImg());
 
         return menuBar;
+    }
+
+    private void loadFilesWithHistory(List<File> files) {
+        if (files == null || files.isEmpty()) {
+            return;
+        }
+        centerPane.getLeftEditPane().loadFiles(files);
+        LoadHistoryStorage.getInstance().addEntries(files);
     }
 
     private JPanel createStatusBar() {

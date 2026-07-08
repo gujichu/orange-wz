@@ -2993,12 +2993,13 @@ public final class EditPane extends JSplitPane {
             @Override
             protected Void doInBackground() {
                 try {
-                    ChineseUtil.initChineseImg();
+                    EditPane fromPane = MainFrame.getInstance().getCenterPane().getAnotherPane(EditPane.this);
+                    ChineseUtil.initChineseImg(EditPane.this, fromPane);
                     for (TreePath treePath : selectedPaths) {
                         DefaultMutableTreeNode node = (DefaultMutableTreeNode) treePath.getLastPathComponent();
                         WzObject to = (WzObject) node.getUserObject();
 
-                        WzObject from = MainFrame.getInstance().getCenterPane().getAnotherPane(EditPane.this).findWzObjectInTreeByPath(to.getPath());
+                        WzObject from = fromPane.findWzObjectInTreeByPath(to.getPath());
                         if (from == null) {
                             log.error("找不到中文版本的 {}", to.getName());
                             continue;

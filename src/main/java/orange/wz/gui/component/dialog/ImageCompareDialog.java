@@ -1,6 +1,8 @@
 package orange.wz.gui.component.dialog;
 
+import orange.wz.gui.component.panel.EditPane;
 import orange.wz.gui.component.panel.ImagePanel;
+import orange.wz.gui.utils.CanvasOriginCache;
 import orange.wz.provider.WzImageProperty;
 import orange.wz.provider.properties.WzCanvasProperty;
 import orange.wz.provider.properties.WzPngFormat;
@@ -19,8 +21,24 @@ import java.util.zip.Deflater;
 
 public final class ImageCompareDialog extends JFrame {
 
+    private static final String BASE_TITLE = "图片对比";
+
     private static final Preferences PREFS = Preferences.userNodeForPackage(ImageCompareDialog.class);
     private static final String PREF_AUTO_REPAIR_ON_REPLACE = "autoRepairOnReplace";
+    private static final String PREF_WINDOW_WIDTH = "windowWidth";
+    private static final String PREF_WINDOW_HEIGHT = "windowHeight";
+    private static final String PREF_WINDOW_X = "windowX";
+    private static final String PREF_WINDOW_Y = "windowY";
+    private static final String PREF_MAIN_SPLIT_DIVIDER = "mainSplitDivider";
+    private static final String PREF_PREVIEW_ZOOM_LEFT = "previewZoomLeft";
+    private static final String PREF_PREVIEW_ZOOM_RIGHT = "previewZoomRight";
+
+    private static final int DEFAULT_WINDOW_WIDTH = 1000;
+    private static final int DEFAULT_WINDOW_HEIGHT = 600;
+    private static final int DEFAULT_MAIN_SPLIT_DIVIDER = 220;
+    private static final int DEFAULT_PREVIEW_ZOOM = 100;
+    private static final int MIN_WINDOW_WIDTH = 640;
+    private static final int MIN_WINDOW_HEIGHT = 400;
 
     private JList<String> stringList;
     private DefaultListModel<String> listModel;
@@ -35,8 +53,13 @@ public final class ImageCompareDialog extends JFrame {
     private JLabel formatLabel2;
     private JLabel scaleLabel1;
     private JLabel scaleLabel2;
+    private JLabel originXLabel1;
+    private JLabel originYLabel1;
+    private JLabel originXLabel2;
+    private JLabel originYLabel2;
 
     private JCheckBox includeChildren;
+    private JCheckBox replaceOrigin;
     private JCheckBox autoRepairOnReplace;
     private JLabel statusLabel;
     private final Map<String, WzCanvasProperty> toMap = new HashMap<>();
@@ -48,29 +71,56 @@ public final class ImageCompareDialog extends JFrame {
     private final List<String> fullPathsInOrder = new ArrayList<>();
     /** 已替换/修补过的路径（按路径记，避免筛选后列表索引变化导致标记错乱） */
     private final Set<String> changedPaths = new HashSet<>();
+    private boolean sameSizeFilterActive;
     private boolean sizeMismatchFilterActive;
+    private boolean originMismatchFilterActive;
     private boolean imageDiffFilterActive;
+    private JButton sameSizeFilterBtn;
     private JButton sizeMismatchFilterBtn;
+    private JButton originMismatchFilterBtn;
     private JButton imageDiffFilterBtn;
+    private JButton batchSameSizeReplaceBtn;
 
-    public ImageCompareDialog(Frame owner) {
-        super("图片对比");
+    private boolean originCacheReady;
+
+    private final EditPane toEditPane;
+    private final EditPane fromEditPane;
+    private final CanvasOriginCache toOriginCache;
+    private final CanvasOriginCache fromOriginCache;
+
+    private JSplitPane mainSplit;
+    private JSlider previewZoomSlider1;
+    private JSlider previewZoomSlider2;
+    private boolean layoutRestored;
+    private boolean dialogClosed;
+    private javax.swing.Timer saveLayoutTimer;
+
+    public ImageCompareDialog(Frame owner, EditPane toEditPane, EditPane fromEditPane) {
+        super(BASE_TITLE);
+        this.toEditPane = toEditPane;
+        this.fromEditPane = fromEditPane;
+        this.toOriginCache = new CanvasOriginCache(toEditPane);
+        this.fromOriginCache = new CanvasOriginCache(fromEditPane);
         if (owner != null) {
             setIconImage(owner.getIconImage());
         }
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         setResizable(true);
-        setSize(1000, 600);
-        setLocationRelativeTo(owner);
+        restoreWindowBounds(owner);
         setLayout(new BorderLayout(10, 10));
 
         add(buildMainPanel(), BorderLayout.CENTER);
         add(buildBottomPanel(), BorderLayout.SOUTH);
 
         bindKeys();
+        bindLayoutPersistence();
 
-        // --- 添加窗口关闭监听 ---
         addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowOpened(WindowEvent e) {
+                restoreInternalLayout();
+            }
+
             @Override
             public void windowClosing(WindowEvent e) {
                 onDialogClosing();
@@ -85,6 +135,82 @@ public final class ImageCompareDialog extends JFrame {
         setVisible(true);
     }
 
+    private void restoreWindowBounds(Frame owner) {
+        int width = Math.max(MIN_WINDOW_WIDTH, PREFS.getInt(PREF_WINDOW_WIDTH, DEFAULT_WINDOW_WIDTH));
+        int height = Math.max(MIN_WINDOW_HEIGHT, PREFS.getInt(PREF_WINDOW_HEIGHT, DEFAULT_WINDOW_HEIGHT));
+        setSize(width, height);
+        if (PREFS.getBoolean("windowLocationSaved", false)) {
+            setLocation(PREFS.getInt(PREF_WINDOW_X, 0), PREFS.getInt(PREF_WINDOW_Y, 0));
+        } else if (owner != null) {
+            setLocationRelativeTo(owner);
+        }
+    }
+
+    private void restoreInternalLayout() {
+        if (layoutRestored || mainSplit == null) {
+            return;
+        }
+        layoutRestored = true;
+        int divider = PREFS.getInt(PREF_MAIN_SPLIT_DIVIDER, DEFAULT_MAIN_SPLIT_DIVIDER);
+        mainSplit.setDividerLocation(Math.max(120, divider));
+        applyPreviewZoom(previewZoomSlider1, imagePanel1, PREFS.getInt(PREF_PREVIEW_ZOOM_LEFT, DEFAULT_PREVIEW_ZOOM));
+        applyPreviewZoom(previewZoomSlider2, imagePanel2, PREFS.getInt(PREF_PREVIEW_ZOOM_RIGHT, DEFAULT_PREVIEW_ZOOM));
+    }
+
+    private static void applyPreviewZoom(JSlider slider, ImagePanel panel, int zoom) {
+        if (slider == null || panel == null) {
+            return;
+        }
+        int clamped = Math.max(10, Math.min(300, zoom));
+        slider.setValue(clamped);
+        panel.setZoomFactor(clamped / 100.0);
+    }
+
+    private void bindLayoutPersistence() {
+        addComponentListener(new ComponentAdapter() {
+            @Override
+            public void componentResized(ComponentEvent e) {
+                scheduleSaveLayout();
+            }
+
+            @Override
+            public void componentMoved(ComponentEvent e) {
+                scheduleSaveLayout();
+            }
+        });
+        if (mainSplit != null) {
+            mainSplit.addPropertyChangeListener(JSplitPane.DIVIDER_LOCATION_PROPERTY, e -> scheduleSaveLayout());
+        }
+    }
+
+    private void scheduleSaveLayout() {
+        if (saveLayoutTimer == null) {
+            saveLayoutTimer = new javax.swing.Timer(250, e -> saveLayoutPreferences());
+            saveLayoutTimer.setRepeats(false);
+        }
+        saveLayoutTimer.restart();
+    }
+
+    private void saveLayoutPreferences() {
+        if (!isShowing()) {
+            return;
+        }
+        PREFS.putInt(PREF_WINDOW_WIDTH, getWidth());
+        PREFS.putInt(PREF_WINDOW_HEIGHT, getHeight());
+        PREFS.putInt(PREF_WINDOW_X, getX());
+        PREFS.putInt(PREF_WINDOW_Y, getY());
+        PREFS.putBoolean("windowLocationSaved", true);
+        if (mainSplit != null) {
+            PREFS.putInt(PREF_MAIN_SPLIT_DIVIDER, mainSplit.getDividerLocation());
+        }
+        if (previewZoomSlider1 != null) {
+            PREFS.putInt(PREF_PREVIEW_ZOOM_LEFT, previewZoomSlider1.getValue());
+        }
+        if (previewZoomSlider2 != null) {
+            PREFS.putInt(PREF_PREVIEW_ZOOM_RIGHT, previewZoomSlider2.getValue());
+        }
+    }
+
     private JComponent buildMainPanel() {
         JScrollPane left = buildStringListPanel();
         JPanel center = buildImageInfoPanel("原图", true);
@@ -96,12 +222,12 @@ public final class ImageCompareDialog extends JFrame {
         rightGroup.add(right);
 
         // 左 + (中右) 用 JSplitPane 控制比例
-        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, left, rightGroup);
-        split.setResizeWeight(0.2);           // 左侧占 20%
-        split.setDividerLocation(220);        // 初始宽度 220px
-        split.setOneTouchExpandable(false);
+        mainSplit = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, left, rightGroup);
+        mainSplit.setResizeWeight(0.2);
+        mainSplit.setDividerLocation(PREFS.getInt(PREF_MAIN_SPLIT_DIVIDER, DEFAULT_MAIN_SPLIT_DIVIDER));
+        mainSplit.setOneTouchExpandable(false);
 
-        return split;
+        return mainSplit;
     }
 
     /**
@@ -109,29 +235,28 @@ public final class ImageCompareDialog extends JFrame {
      */
     private JScrollPane buildStringListPanel() {
         listModel = new DefaultListModel<>();
-        stringList = new JList<>(listModel);
-        stringList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        stringList = new JList<>(listModel) {
+            @Override
+            public boolean getScrollableTracksViewportWidth() {
+                return false;
+            }
+        };
+        stringList.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
 
-        // 超出宽度用 ... 显示
         stringList.setCellRenderer(new DefaultListCellRenderer() {
             @Override
             public Component getListCellRendererComponent(JList<?> list, Object value,
                                                           int index, boolean isSelected, boolean cellHasFocus) {
                 JLabel lbl = (JLabel) super.getListCellRendererComponent(
                         list, value, index, isSelected, cellHasFocus);
-
-                // 默认文本颜色
-                lbl.setForeground(Color.BLACK);
-
-                // 如果被标记了特殊颜色
-                if (value != null && changedPaths.contains(value.toString())) {
-                    lbl.setForeground(Color.MAGENTA);
+                String text = value != null ? value.toString() : "";
+                lbl.setText(text);
+                lbl.setToolTipText(text);
+                if (value != null && changedPaths.contains(text)) {
+                    lbl.setForeground(isSelected ? new Color(255, 180, 255) : Color.MAGENTA);
+                } else if (!isSelected) {
+                    lbl.setForeground(Color.BLACK);
                 }
-
-                // 文本省略显示
-                lbl.setToolTipText(value.toString());
-                lbl.setText(ellipsis(value.toString(), list.getWidth() - 20, lbl.getFontMetrics(lbl.getFont())));
-
                 return lbl;
             }
         });
@@ -147,13 +272,23 @@ public final class ImageCompareDialog extends JFrame {
                     }
                 }
             }
+
+            @Override
+            public void mousePressed(MouseEvent e) {
+                showListContextMenu(e);
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                showListContextMenu(e);
+            }
         });
 
         stringList.addListSelectionListener(e -> {
-            if (!e.getValueIsAdjusting()) { // 只触发一次
-                String sel = stringList.getSelectedValue();
-                if (sel != null) {
-                    onStringSelected(sel);
+            if (!e.getValueIsAdjusting()) {
+                List<String> selected = stringList.getSelectedValuesList();
+                if (!selected.isEmpty()) {
+                    onStringSelected(selected.get(0));
                 }
             }
         });
@@ -172,17 +307,33 @@ public final class ImageCompareDialog extends JFrame {
         });
 
 
-        return new JScrollPane(stringList);
+        return new JScrollPane(stringList, ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED,
+                ScrollPaneConstants.HORIZONTAL_SCROLLBAR_AS_NEEDED);
     }
 
-    private static JSlider createPreviewZoomSlider(ImagePanel imagePanel) {
-        JSlider slider = new JSlider(10, 300, 100);
+    private JSlider createPreviewZoomSlider(ImagePanel imagePanel, boolean first) {
+        int initialZoom = first
+                ? PREFS.getInt(PREF_PREVIEW_ZOOM_LEFT, DEFAULT_PREVIEW_ZOOM)
+                : PREFS.getInt(PREF_PREVIEW_ZOOM_RIGHT, DEFAULT_PREVIEW_ZOOM);
+        JSlider slider = new JSlider(10, 300, Math.max(10, Math.min(300, initialZoom)));
         slider.setMajorTickSpacing(50);
         slider.setMinorTickSpacing(10);
         slider.setPaintTicks(true);
         slider.setPaintLabels(true);
         slider.setToolTipText("拖动调节预览图片显示大小（10%–300%）");
-        slider.addChangeListener(e -> imagePanel.setZoomFactor(slider.getValue() / 100.0));
+        slider.addChangeListener(e -> {
+            imagePanel.setZoomFactor(slider.getValue() / 100.0);
+            if (!slider.getValueIsAdjusting()) {
+                scheduleSaveLayout();
+            }
+        });
+        if (first) {
+            previewZoomSlider1 = slider;
+            imagePanel.setZoomFactor(slider.getValue() / 100.0);
+        } else {
+            previewZoomSlider2 = slider;
+            imagePanel.setZoomFactor(slider.getValue() / 100.0);
+        }
         return slider;
     }
 
@@ -203,7 +354,7 @@ public final class ImageCompareDialog extends JFrame {
 
         JPanel imageColumn = new JPanel(new BorderLayout(5, 5));
         imageColumn.add(imageScroll, BorderLayout.CENTER);
-        imageColumn.add(createPreviewZoomSlider(imageLabel), BorderLayout.SOUTH);
+        imageColumn.add(createPreviewZoomSlider(imageLabel, first), BorderLayout.SOUTH);
 
         // 参数信息（横向排列）
         JPanel info = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
@@ -212,10 +363,14 @@ public final class ImageCompareDialog extends JFrame {
         JLabel heightLabel = new JLabel("Height: ");
         JLabel formatLabel = new JLabel("Format: ");
         JLabel scaleLabel = new JLabel("Scale: ");
+        JLabel originXLabel = new JLabel("Origin X: ");
+        JLabel originYLabel = new JLabel("Origin Y: ");
         info.add(widthLabel);
         info.add(heightLabel);
         info.add(formatLabel);
         info.add(scaleLabel);
+        info.add(originXLabel);
+        info.add(originYLabel);
 
         panel.add(imageColumn, BorderLayout.CENTER);
         panel.add(info, BorderLayout.SOUTH);
@@ -226,12 +381,16 @@ public final class ImageCompareDialog extends JFrame {
             heightLabel1 = heightLabel;
             formatLabel1 = formatLabel;
             scaleLabel1 = scaleLabel;
+            originXLabel1 = originXLabel;
+            originYLabel1 = originYLabel;
         } else {
             imagePanel2 = imageLabel;
             widthLabel2 = widthLabel;
             heightLabel2 = heightLabel;
             formatLabel2 = formatLabel;
             scaleLabel2 = scaleLabel;
+            originXLabel2 = originXLabel;
+            originYLabel2 = originYLabel;
         }
 
         return panel;
@@ -243,13 +402,17 @@ public final class ImageCompareDialog extends JFrame {
     private JPanel buildBottomPanel() {
         JPanel wrapper = new JPanel(new BorderLayout());
 
-        // 按钮区
-        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.CENTER, 30, 8));
+        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.CENTER, 12, 4));
         includeChildren = new JCheckBox("包括Origin等子节点");
         includeChildren.setSelected(true);
+        replaceOrigin = new JCheckBox("替换Origin描点");
+        replaceOrigin.setSelected(true);
         JButton repairSizeBtn = new JButton("图片尺寸修补");
+        sameSizeFilterBtn = new JButton("同尺寸筛选");
         sizeMismatchFilterBtn = new JButton("大小差异筛选");
+        originMismatchFilterBtn = new JButton("描点差异筛选");
         imageDiffFilterBtn = new JButton("图片差异筛选");
+        batchSameSizeReplaceBtn = new JButton("同尺寸批量替换");
         JButton replaceBtn = new JButton("替换 (空格键)");
         autoRepairOnReplace = new JCheckBox("自动修补");
         autoRepairOnReplace.setSelected(PREFS.getBoolean(PREF_AUTO_REPAIR_ON_REPLACE, true));
@@ -257,14 +420,21 @@ public final class ImageCompareDialog extends JFrame {
                 PREFS.putBoolean(PREF_AUTO_REPAIR_ON_REPLACE, autoRepairOnReplace.isSelected()));
 
         repairSizeBtn.addActionListener(e -> repairImageSizeToReference());
+        sameSizeFilterBtn.addActionListener(e -> toggleSameSizeFilter());
         sizeMismatchFilterBtn.addActionListener(e -> toggleSizeMismatchFilter());
+        originMismatchFilterBtn.addActionListener(e -> toggleOriginMismatchFilter());
         imageDiffFilterBtn.addActionListener(e -> toggleImageDiffFilter());
+        batchSameSizeReplaceBtn.addActionListener(e -> batchReplaceSameSize());
         replaceBtn.addActionListener(e -> replaceImage());
 
         buttons.add(includeChildren);
+        buttons.add(replaceOrigin);
         buttons.add(repairSizeBtn);
+        buttons.add(sameSizeFilterBtn);
         buttons.add(sizeMismatchFilterBtn);
+        buttons.add(originMismatchFilterBtn);
         buttons.add(imageDiffFilterBtn);
+        buttons.add(batchSameSizeReplaceBtn);
         buttons.add(replaceBtn);
         buttons.add(autoRepairOnReplace);
 
@@ -301,112 +471,285 @@ public final class ImageCompareDialog extends JFrame {
     }
 
     private void replaceImage() {
-        if (curTo == null || curFrom == null) {
+        List<String> selected = stringList.getSelectedValuesList();
+        if (selected.isEmpty()) {
             return;
         }
-
-        BufferedImage image;
-
-        if (autoRepairOnReplace.isSelected()) {
-            BufferedImage src = curFrom.getPngImage(false);
-            if (src == null) {
-                JOptionPane.showMessageDialog(this, "替换图解码失败，无法自动修补。", "替换", JOptionPane.WARNING_MESSAGE);
+        if (selected.size() > 1) {
+            int confirm = JOptionPane.showConfirmDialog(this,
+                    "确定替换选中的 " + selected.size() + " 张图片？",
+                    "批量替换", JOptionPane.YES_NO_OPTION);
+            if (confirm != JOptionPane.YES_OPTION) {
                 return;
             }
-            int tw = curTo.getWidth();
-            int th = curTo.getHeight();
+            for (String path : selected) {
+                replaceSinglePath(path, false);
+            }
+            refreshListKeepingFilter();
+            return;
+        }
+        replaceSinglePath(selected.get(0), true);
+    }
+
+    private void replaceSinglePath(String path, boolean advanceAfter) {
+        WzCanvasProperty to = toMap.get(path);
+        WzCanvasProperty from = fromMap.get(path);
+        if (to == null || from == null) {
+            return;
+        }
+        curTo = to;
+        curFrom = from;
+
+        BufferedImage image;
+        if (autoRepairOnReplace.isSelected()) {
+            BufferedImage src = from.getPngImage(false);
+            if (src == null) {
+                JOptionPane.showMessageDialog(this, "替换图解码失败，无法自动修补: " + path, "替换", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            int tw = to.getWidth();
+            int th = to.getHeight();
             if (tw <= 0 || th <= 0) {
-                JOptionPane.showMessageDialog(this, "原图尺寸无效，无法自动修补。", "替换", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(this, "原图尺寸无效，无法自动修补: " + path, "替换", JOptionPane.ERROR_MESSAGE);
                 return;
             }
             int sw = src.getWidth();
             int sh = src.getHeight();
             if (sw <= 0 || sh <= 0) {
-                JOptionPane.showMessageDialog(this, "替换图尺寸无效，无法自动修补。", "替换", JOptionPane.ERROR_MESSAGE);
+                JOptionPane.showMessageDialog(this, "替换图尺寸无效，无法自动修补: " + path, "替换", JOptionPane.ERROR_MESSAGE);
                 return;
             }
-            WzPngFormat leftFormat = curTo.getFormat();
-            int leftScale = curTo.getScale();
+            WzPngFormat leftFormat = to.getFormat();
+            int leftScale = to.getScale();
             image = fitImageToCanvas(src, tw, th, CanvasFitMode.FIT_INSIDE);
-            curTo.setPng(image, leftFormat, leftScale, Deflater.BEST_COMPRESSION, WzPngZlibCompressMode.FILTERED);
+            to.setPng(image, leftFormat, leftScale, Deflater.BEST_COMPRESSION, WzPngZlibCompressMode.FILTERED);
         } else {
-            image = curFrom.getPngImage(false);
+            image = from.getPngImage(false);
             if (image == null) {
-                JOptionPane.showMessageDialog(this, "替换图解码失败。", "替换", JOptionPane.WARNING_MESSAGE);
+                JOptionPane.showMessageDialog(this, "替换图解码失败: " + path, "替换", JOptionPane.WARNING_MESSAGE);
                 return;
             }
-            curTo.setPng(image, curFrom.getFormat(), curFrom.getScale(),
+            to.setPng(image, from.getFormat(), from.getScale(),
                     Deflater.BEST_COMPRESSION, WzPngZlibCompressMode.FILTERED);
         }
 
-        curTo.clearImage();
-        imagePanel1.setImage(image);
-        refreshLeftImageInfo();
+        to.clearImage();
+        if (path.equals(stringList.getSelectedValue()) || stringList.getSelectedValuesList().contains(path)) {
+            imagePanel1.setImage(image);
+            refreshLeftImageInfo();
+        }
 
         if (includeChildren.isSelected()) {
             List<WzImageProperty> children = new ArrayList<>();
-            curFrom.getChildren().forEach(child -> children.add(child.deepClone(curTo)));
-            curTo.replaceChildrenList(children);
+            from.getChildren().forEach(child -> children.add(child.deepClone(to)));
+            to.replaceChildrenList(children);
         }
 
-        String path = stringList.getSelectedValue();
-        if (path != null) {
-            changedPaths.add(path);
-        }
-        int index = stringList.getSelectedIndex();
-        if (index >= 0 && index + 1 < listModel.getSize()) {
-            stringList.setSelectedIndex(index + 1);
-        }
+        applyOriginReplace(path);
 
-        setStatus("已修改 " + changedPaths.size() + " / " + getTotalPathCount() + " 条");
+        changedPaths.add(path);
+        if (advanceAfter) {
+            int index = listModel.indexOf(path);
+            if (index >= 0 && index + 1 < listModel.getSize()) {
+                stringList.setSelectedIndex(index + 1);
+            }
+        }
+        updateStatusWithStats();
+    }
+
+    private void applyOriginReplace(String canvasPath) {
+        if (!replaceOrigin.isSelected()) {
+            return;
+        }
+        CanvasOriginCache.OriginEntry fromEntry = fromOriginCache.get(canvasPath);
+        CanvasOriginCache.OriginEntry toEntry = toOriginCache.get(canvasPath);
+        if (!fromEntry.hasOrigin() || !toEntry.found()) {
+            return;
+        }
+        if (CanvasOriginCache.applyOrigin(toEntry.metaNode(), fromEntry.x(), fromEntry.y())) {
+            toOriginCache.put(canvasPath, CanvasOriginCache.OriginEntry.of(
+                    toEntry.metaNode(), toEntry.metaPath(), fromEntry.x(), fromEntry.y(), true));
+            if (canvasPath.equals(stringList.getSelectedValue())) {
+                refreshLeftImageInfo();
+            }
+        }
+    }
+
+    private void batchReplaceSameSize() {
+        int totalInList = listModel.getSize();
+        List<String> targets = collectSameSizeDiffPathsInCurrentList();
+        if (targets.isEmpty()) {
+            JOptionPane.showMessageDialog(this,
+                    String.format("当前列表共 %d 张图片，没有可批量替换的同尺寸差异项。", totalInList),
+                    "同尺寸批量替换", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        int confirm = JOptionPane.showConfirmDialog(this,
+                String.format("当前共 %d 张图片，存在 %d 张尺寸相同但内容不一样的图片，是否批量替换？",
+                        totalInList, targets.size()),
+                "同尺寸批量替换", JOptionPane.YES_NO_OPTION);
+        if (confirm != JOptionPane.YES_OPTION) {
+            return;
+        }
+        for (String path : targets) {
+            replaceSinglePath(path, false);
+        }
+        refreshListKeepingFilter();
+    }
+
+    private List<String> collectSameSizeDiffPathsInCurrentList() {
+        List<String> targets = new ArrayList<>();
+        for (int i = 0; i < listModel.getSize(); i++) {
+            String path = listModel.get(i);
+            if (pathHasSameSize(path) && pathHasImageDifference(path)) {
+                targets.add(path);
+            }
+        }
+        return targets;
+    }
+
+    /** 批量操作后刷新列表显示（保留当前筛选条件，更新已替换项颜色）。 */
+    private void refreshListKeepingFilter() {
+        if (isAnyFilterActive()) {
+            rebuildFilteredList();
+        } else {
+            stringList.repaint();
+            updateStatusWithStats();
+        }
+    }
+
+    private void restoreListSelection(List<String> preferredPaths) {
+        if (preferredPaths.isEmpty()) {
+            if (listModel.isEmpty()) {
+                curTo = null;
+                curFrom = null;
+                imagePanel1.setImage(null);
+                imagePanel2.setImage(null);
+                updateDialogTitle(null);
+            } else {
+                stringList.setSelectedIndex(0);
+                stringList.ensureIndexIsVisible(0);
+                onStringSelected(listModel.get(0));
+            }
+            return;
+        }
+        List<Integer> indices = new ArrayList<>();
+        for (String path : preferredPaths) {
+            int idx = listModel.indexOf(path);
+            if (idx >= 0) {
+                indices.add(idx);
+            }
+        }
+        if (indices.isEmpty()) {
+            if (!listModel.isEmpty()) {
+                stringList.setSelectedIndex(0);
+                stringList.ensureIndexIsVisible(0);
+                onStringSelected(listModel.get(0));
+            }
+            return;
+        }
+        int[] arr = indices.stream().mapToInt(Integer::intValue).toArray();
+        stringList.setSelectedIndices(arr);
+        stringList.ensureIndexIsVisible(arr[0]);
+        onStringSelected(listModel.get(arr[0]));
     }
 
     /**
      * 将左侧「原图」按右侧「替换」图的画布尺寸调整：不拉伸变形。
-     * 左宽、左高均不大于右：原图居中置于透明画布（不缩放）。
-     * 否则：先缩放到与右图同宽，高度超出则上下对称居中裁剪，不足则上下对称补透明。
      */
     private void repairImageSizeToReference() {
-        if (curTo == null || curFrom == null) {
+        List<String> selected = stringList.getSelectedValuesList();
+        if (selected.isEmpty()) {
             return;
         }
-        BufferedImage src = curTo.getPngImage(false);
+        if (selected.size() > 1) {
+            int confirm = JOptionPane.showConfirmDialog(this,
+                    "确定对选中的 " + selected.size() + " 张图片进行尺寸修补？",
+                    "批量尺寸修补", JOptionPane.YES_NO_OPTION);
+            if (confirm != JOptionPane.YES_OPTION) {
+                return;
+            }
+            for (String path : selected) {
+                repairSinglePath(path, false);
+            }
+            refreshListKeepingFilter();
+            return;
+        }
+        repairSinglePath(selected.get(0), true);
+    }
+
+    private boolean repairSinglePath(String path, boolean advanceAfter) {
+        WzCanvasProperty to = toMap.get(path);
+        WzCanvasProperty from = fromMap.get(path);
+        if (to == null || from == null) {
+            return false;
+        }
+        curTo = to;
+        curFrom = from;
+
+        BufferedImage src = to.getPngImage(false);
         if (src == null) {
-            JOptionPane.showMessageDialog(this, "原图解码失败，无法修补。", "图片尺寸修补", JOptionPane.WARNING_MESSAGE);
-            return;
+            JOptionPane.showMessageDialog(this, "原图解码失败，无法修补: " + path, "图片尺寸修补", JOptionPane.WARNING_MESSAGE);
+            return false;
         }
-        int tw = curFrom.getWidth();
-        int th = curFrom.getHeight();
+        int tw = from.getWidth();
+        int th = from.getHeight();
         if (tw <= 0 || th <= 0) {
-            JOptionPane.showMessageDialog(this, "替换图尺寸无效。", "图片尺寸修补", JOptionPane.ERROR_MESSAGE);
-            return;
+            JOptionPane.showMessageDialog(this, "替换图尺寸无效: " + path, "图片尺寸修补", JOptionPane.ERROR_MESSAGE);
+            return false;
         }
         int sw = src.getWidth();
         int sh = src.getHeight();
         if (sw <= 0 || sh <= 0) {
-            JOptionPane.showMessageDialog(this, "原图尺寸无效。", "图片尺寸修补", JOptionPane.ERROR_MESSAGE);
-            return;
+            JOptionPane.showMessageDialog(this, "原图尺寸无效: " + path, "图片尺寸修补", JOptionPane.ERROR_MESSAGE);
+            return false;
         }
 
         BufferedImage out = fitImageToCanvas(src, tw, th, CanvasFitMode.FIT_TARGET_WIDTH);
 
-        WzPngFormat leftFormat = curTo.getFormat();
-        int leftScale = curTo.getScale();
-        curTo.setPng(out, leftFormat, leftScale, Deflater.BEST_COMPRESSION, WzPngZlibCompressMode.FILTERED);
-        curTo.clearImage();
-        imagePanel1.setImage(out);
-        refreshLeftImageInfo();
+        WzPngFormat leftFormat = to.getFormat();
+        int leftScale = to.getScale();
+        to.setPng(out, leftFormat, leftScale, Deflater.BEST_COMPRESSION, WzPngZlibCompressMode.FILTERED);
+        to.clearImage();
 
-        String path = stringList.getSelectedValue();
-        if (path != null) {
-            changedPaths.add(path);
-            stringList.repaint();
+        if (path.equals(stringList.getSelectedValue()) || stringList.getSelectedValuesList().contains(path)) {
+            imagePanel1.setImage(out);
+            refreshLeftImageInfo();
         }
-        int index = stringList.getSelectedIndex();
-        if (index >= 0 && index + 1 < listModel.getSize()) {
-            stringList.setSelectedIndex(index + 1);
+
+        changedPaths.add(path);
+        if (advanceAfter) {
+            int index = listModel.indexOf(path);
+            if (index >= 0 && index + 1 < listModel.getSize()) {
+                stringList.setSelectedIndex(index + 1);
+            }
         }
-        setStatus("已修改 " + changedPaths.size() + " / " + getTotalPathCount() + " 条");
+        updateStatusWithStats();
+        return true;
+    }
+
+    private void updateStatusWithStats() {
+        int total = getTotalPathCount();
+        int sameSizeDiff = 0;
+        int sizeMismatch = 0;
+        int originMismatch = 0;
+        int imageDiff = 0;
+        for (String path : getFullPathSourceOrder()) {
+            if (pathHasImageDifference(path)) {
+                imageDiff++;
+            }
+            if (pathHasSameSize(path) && pathHasImageDifference(path)) {
+                sameSizeDiff++;
+            }
+            if (pathHasSizeMismatch(path)) {
+                sizeMismatch++;
+            }
+            if (pathHasOriginMismatch(path)) {
+                originMismatch++;
+            }
+        }
+        setStatus(String.format("已修改 %d / %d 条 | 同尺寸差异 %d | 尺寸不同 %d | 描点不同 %d | 图片差异 %d",
+                changedPaths.size(), total, sameSizeDiff, sizeMismatch, originMismatch, imageDiff));
     }
 
     private enum CanvasFitMode {
@@ -483,6 +826,7 @@ public final class ImageCompareDialog extends JFrame {
     }
 
     private void updateImageInfoLabels(WzCanvasProperty left, WzCanvasProperty right) {
+        String path = left.getPath();
         widthLabel1.setText("Width: " + left.getWidth());
         heightLabel1.setText("Height: " + left.getHeight());
         formatLabel1.setText("Format: " + left.getFormat());
@@ -493,10 +837,50 @@ public final class ImageCompareDialog extends JFrame {
         formatLabel2.setText("Format: " + right.getFormat());
         scaleLabel2.setText("Scale: " + right.getScale());
 
+        CanvasOriginCache.OriginEntry leftOrigin = toOriginCache.get(path);
+        CanvasOriginCache.OriginEntry rightOrigin = fromOriginCache.get(path);
+        applyOriginLabels(originXLabel1, originYLabel1, leftOrigin, rightOrigin, true);
+        applyOriginLabels(originXLabel2, originYLabel2, rightOrigin, leftOrigin, false);
+
         setOriginalInfoDiffColor(widthLabel1, left.getWidth() != right.getWidth());
         setOriginalInfoDiffColor(heightLabel1, left.getHeight() != right.getHeight());
         setOriginalInfoDiffColor(formatLabel1, left.getFormat() != right.getFormat());
         setOriginalInfoDiffColor(scaleLabel1, left.getScale() != right.getScale());
+    }
+
+    private static void applyOriginLabels(JLabel xLabel, JLabel yLabel,
+                                          CanvasOriginCache.OriginEntry entry,
+                                          CanvasOriginCache.OriginEntry other,
+                                          boolean highlightDiff) {
+        if (!entry.hasOrigin()) {
+            xLabel.setText("Origin: 未找到描点");
+            yLabel.setText("");
+            String metaHint = entry.metaPath() != null ? entry.metaPath() : "无";
+            xLabel.setToolTipText(entry.found()
+                    ? "已定位属性节点 " + metaHint + "，但无 origin 子节点"
+                    : "未在视图中找到对应属性 WZ 节点（请确认已加载 Map_000.wz / UI_000.wz 等）");
+            yLabel.setToolTipText(null);
+            if (highlightDiff) {
+                boolean differs = entry.hasOrigin() != other.hasOrigin()
+                        || (entry.hasOrigin() && other.hasOrigin()
+                        && (entry.x() != other.x() || entry.y() != other.y()));
+                setOriginalInfoDiffColor(xLabel, differs);
+            }
+            return;
+        }
+        xLabel.setText("Origin X: " + entry.x());
+        yLabel.setText("Origin Y: " + entry.y());
+        xLabel.setToolTipText(null);
+        yLabel.setToolTipText(null);
+        if (highlightDiff) {
+            if (!other.hasOrigin()) {
+                setOriginalInfoDiffColor(xLabel, true);
+                setOriginalInfoDiffColor(yLabel, true);
+            } else {
+                setOriginalInfoDiffColor(xLabel, entry.x() != other.x());
+                setOriginalInfoDiffColor(yLabel, entry.y() != other.y());
+            }
+        }
     }
 
     private static void setOriginalInfoDiffColor(JLabel label, boolean differs) {
@@ -523,23 +907,55 @@ public final class ImageCompareDialog extends JFrame {
         return dst;
     }
 
-    /**
-     * 文本省略显示
-     */
-    private String ellipsis(String text, int maxWidth, FontMetrics fm) {
-        if (fm.stringWidth(text) <= maxWidth) return text;
-        String dots = "...";
-        int w = fm.stringWidth(dots);
-        int i = text.length() - 1;
-        while (i > 0 && fm.stringWidth(text.substring(0, i)) + w > maxWidth) {
-            i--;
+    private void showListContextMenu(MouseEvent e) {
+        if (!e.isPopupTrigger()) {
+            return;
         }
-        return text.substring(0, i) + dots;
+        int index = stringList.locationToIndex(e.getPoint());
+        if (index < 0 || index >= listModel.size()) {
+            return;
+        }
+        stringList.setSelectedIndex(index);
+        String path = listModel.get(index);
+
+        JPopupMenu menu = new JPopupMenu();
+        JMenuItem viewImageItem = new JMenuItem("查看图片");
+        viewImageItem.addActionListener(ev -> navigateToPath(toEditPane, path));
+        JMenuItem viewMetaItem = new JMenuItem("查看属性");
+        viewMetaItem.addActionListener(ev -> {
+            String metaPath = toOriginCache.resolveMetadataPath(path);
+            if (metaPath == null) {
+                JOptionPane.showMessageDialog(this,
+                        "未找到对应属性 WZ 节点：\n" + path,
+                        "查看属性", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+            navigateToPath(toEditPane, metaPath);
+        });
+        menu.add(viewImageItem);
+        menu.add(viewMetaItem);
+        menu.show(stringList, e.getX(), e.getY());
+    }
+
+    private static void navigateToPath(EditPane editPane, String path) {
+        if (path == null || path.isBlank()) {
+            return;
+        }
+        editPane.focusNodeByPath(Arrays.asList(path.replace('\\', '/').split("/")));
+    }
+
+    private void updateDialogTitle(String selectedPath) {
+        if (selectedPath == null || selectedPath.isEmpty()) {
+            setTitle(BASE_TITLE);
+        } else {
+            setTitle(BASE_TITLE + "  " + selectedPath.replace('/', '\\'));
+        }
     }
 
     private void onStringSelected(String value) {
         curTo = toMap.get(value);
         curFrom = fromMap.get(value);
+        updateDialogTitle(value);
         imagePanel1.setImage(curTo.getPngImage(false));
         imagePanel2.setImage(curFrom.getPngImage(false));
         updateImageInfoLabels(curTo, curFrom);
@@ -554,6 +970,26 @@ public final class ImageCompareDialog extends JFrame {
             return fullPathsInOrder.size();
         }
         return toMap.size();
+    }
+
+    private boolean pathHasSameSize(String path) {
+        WzCanvasProperty left = toMap.get(path);
+        WzCanvasProperty right = fromMap.get(path);
+        return left != null && right != null
+                && left.getWidth() == right.getWidth()
+                && left.getHeight() == right.getHeight();
+    }
+
+    private boolean pathHasOriginMismatch(String path) {
+        if (!originCacheReady) {
+            return false;
+        }
+        CanvasOriginCache.OriginEntry left = toOriginCache.get(path);
+        CanvasOriginCache.OriginEntry right = fromOriginCache.get(path);
+        if (!left.hasOrigin() || !right.hasOrigin()) {
+            return left.hasOrigin() != right.hasOrigin();
+        }
+        return left.x() != right.x() || left.y() != right.y();
     }
 
     private boolean pathHasSizeMismatch(String path) {
@@ -594,13 +1030,24 @@ public final class ImageCompareDialog extends JFrame {
     }
 
     private boolean pathPassesActiveFilter(String path) {
-        if (sizeMismatchFilterActive) {
-            return pathHasSizeMismatch(path);
+        if (sameSizeFilterActive && !(pathHasSameSize(path) && pathHasImageDifference(path))) {
+            return false;
         }
-        if (imageDiffFilterActive) {
-            return pathHasImageDifference(path);
+        if (sizeMismatchFilterActive && !pathHasSizeMismatch(path)) {
+            return false;
+        }
+        if (originMismatchFilterActive && !pathHasOriginMismatch(path)) {
+            return false;
+        }
+        if (imageDiffFilterActive && !pathHasImageDifference(path)) {
+            return false;
         }
         return true;
+    }
+
+    private boolean isAnyFilterActive() {
+        return sameSizeFilterActive || sizeMismatchFilterActive
+                || originMismatchFilterActive || imageDiffFilterActive;
     }
 
     private List<String> getFullPathSourceOrder() {
@@ -611,41 +1058,95 @@ public final class ImageCompareDialog extends JFrame {
     }
 
     private void deactivateAllFilters() {
+        sameSizeFilterActive = false;
         sizeMismatchFilterActive = false;
+        originMismatchFilterActive = false;
         imageDiffFilterActive = false;
-        sizeMismatchFilterBtn.setText("大小差异筛选");
-        imageDiffFilterBtn.setText("图片差异筛选");
+        updateAllFilterButtonStates();
     }
 
-    private void applyFilteredList(List<String> filtered, int totalCount, String statusPrefix) {
+    private void updateAllFilterButtonStates() {
+        updateFilterButtonState(sameSizeFilterBtn, sameSizeFilterActive, "同尺寸筛选");
+        updateFilterButtonState(sizeMismatchFilterBtn, sizeMismatchFilterActive, "大小差异筛选");
+        updateFilterButtonState(originMismatchFilterBtn, originMismatchFilterActive, "描点差异筛选");
+        updateFilterButtonState(imageDiffFilterBtn, imageDiffFilterActive, "图片差异筛选");
+    }
+
+    private void updateFilterButtonState(JButton button, boolean active, String baseLabel) {
+        button.setText(active ? "✓ " + baseLabel : baseLabel);
+        button.setOpaque(true);
+        button.setBackground(active ? new Color(200, 230, 255) : UIManager.getColor("Button.background"));
+    }
+
+    private String buildFilterStatusPrefix() {
+        List<String> parts = new ArrayList<>();
+        if (sameSizeFilterActive) {
+            parts.add("同尺寸差异");
+        }
+        if (sizeMismatchFilterActive) {
+            parts.add("大小差异");
+        }
+        if (originMismatchFilterActive) {
+            parts.add("描点差异");
+        }
+        if (imageDiffFilterActive) {
+            parts.add("图片差异");
+        }
+        return String.join(" + ", parts);
+    }
+
+    private String buildFilterStatusText(int matched, int total) {
+        return String.format("筛选[%s] %d / %d 条（已修改 %d 条）",
+                buildFilterStatusPrefix(), matched, total, changedPaths.size());
+    }
+
+    /**
+     * 按当前已启用的筛选条件（AND 叠加）重建左侧列表。
+     *
+     * @return 无筛选或筛选结果非空时返回 true
+     */
+    private boolean rebuildFilteredList() {
+        List<String> sourceOrder = getFullPathSourceOrder();
+        if (!isAnyFilterActive()) {
+            listModel.clear();
+            listModel.addAll(sourceOrder);
+            restoreListSelection(Collections.emptyList());
+            updateStatusWithStats();
+            return true;
+        }
+        List<String> filtered = new ArrayList<>();
+        for (String path : sourceOrder) {
+            if (pathPassesActiveFilter(path)) {
+                filtered.add(path);
+            }
+        }
+        List<String> selectedPaths = new ArrayList<>(stringList.getSelectedValuesList());
         listModel.clear();
         listModel.addAll(filtered);
-        if (!listModel.isEmpty()) {
-            stringList.setSelectedIndex(0);
-            stringList.ensureIndexIsVisible(0);
-            onStringSelected(listModel.get(0));
-        } else {
-            curTo = null;
-            curFrom = null;
-            imagePanel1.setImage(null);
-            imagePanel2.setImage(null);
-        }
-        setStatus(statusPrefix + filtered.size() + " / " + totalCount
-                + " 条（已修改 " + changedPaths.size() + " 条）");
+        restoreListSelection(selectedPaths);
+        setStatus(buildFilterStatusText(filtered.size(), sourceOrder.size()));
+        return !filtered.isEmpty();
     }
 
-    private void restoreFullPathList() {
-        listModel.clear();
-        listModel.addAll(fullPathsInOrder.isEmpty()
-                ? new ArrayList<>(toMap.keySet())
-                : fullPathsInOrder);
-        deactivateAllFilters();
-        if (!listModel.isEmpty()) {
-            stringList.setSelectedIndex(0);
-            stringList.ensureIndexIsVisible(0);
-            onStringSelected(listModel.get(0));
+    private void toggleFilter(java.util.function.BooleanSupplier isActive,
+                              java.util.function.Consumer<Boolean> setActive,
+                              JButton button, String label) {
+        if (!isActive.getAsBoolean() && getFullPathSourceOrder().isEmpty()) {
+            JOptionPane.showMessageDialog(this, "当前没有可筛选的路径。", label, JOptionPane.INFORMATION_MESSAGE);
+            return;
         }
-        setStatus("已修改 " + changedPaths.size() + " / " + getTotalPathCount() + " 条");
+        boolean enabling = !isActive.getAsBoolean();
+        setActive.accept(enabling);
+        updateFilterButtonState(button, enabling, label);
+        if (!rebuildFilteredList()) {
+            if (enabling) {
+                setActive.accept(false);
+                updateFilterButtonState(button, false, label);
+                JOptionPane.showMessageDialog(this,
+                        "当前筛选组合下无匹配项。",
+                        label, JOptionPane.INFORMATION_MESSAGE);
+            }
+        }
     }
 
     /** 将 collections 刷入左侧列表；若正在筛选，只追加符合当前筛选条件的项 */
@@ -653,7 +1154,7 @@ public final class ImageCompareDialog extends JFrame {
         if (collections.isEmpty()) {
             return;
         }
-        if (sizeMismatchFilterActive || imageDiffFilterActive) {
+        if (isAnyFilterActive()) {
             for (String p : collections) {
                 if (pathPassesActiveFilter(p)) {
                     listModel.addElement(p);
@@ -665,52 +1166,24 @@ public final class ImageCompareDialog extends JFrame {
         collections.clear();
     }
 
-    private void toggleSizeMismatchFilter() {
-        if (sizeMismatchFilterActive) {
-            restoreFullPathList();
-            return;
-        }
-        if (fullPathsInOrder.isEmpty() && listModel.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "当前没有可筛选的路径。", "大小差异筛选", JOptionPane.INFORMATION_MESSAGE);
-            return;
-        }
-        imageDiffFilterActive = false;
-        imageDiffFilterBtn.setText("图片差异筛选");
+    private void toggleSameSizeFilter() {
+        toggleFilter(() -> sameSizeFilterActive, active -> sameSizeFilterActive = active,
+                sameSizeFilterBtn, "同尺寸筛选");
+    }
 
-        List<String> sourceOrder = getFullPathSourceOrder();
-        List<String> mismatched = new ArrayList<>();
-        for (String path : sourceOrder) {
-            if (pathHasSizeMismatch(path)) {
-                mismatched.add(path);
-            }
-        }
-        sizeMismatchFilterActive = true;
-        sizeMismatchFilterBtn.setText("显示全部列表");
-        applyFilteredList(mismatched, sourceOrder.size(), "大小差异 ");
+    private void toggleSizeMismatchFilter() {
+        toggleFilter(() -> sizeMismatchFilterActive, active -> sizeMismatchFilterActive = active,
+                sizeMismatchFilterBtn, "大小差异筛选");
+    }
+
+    private void toggleOriginMismatchFilter() {
+        toggleFilter(() -> originMismatchFilterActive, active -> originMismatchFilterActive = active,
+                originMismatchFilterBtn, "描点差异筛选");
     }
 
     private void toggleImageDiffFilter() {
-        if (imageDiffFilterActive) {
-            restoreFullPathList();
-            return;
-        }
-        if (fullPathsInOrder.isEmpty() && listModel.isEmpty()) {
-            JOptionPane.showMessageDialog(this, "当前没有可筛选的路径。", "图片差异筛选", JOptionPane.INFORMATION_MESSAGE);
-            return;
-        }
-        sizeMismatchFilterActive = false;
-        sizeMismatchFilterBtn.setText("大小差异筛选");
-
-        List<String> sourceOrder = getFullPathSourceOrder();
-        List<String> diff = new ArrayList<>();
-        for (String path : sourceOrder) {
-            if (pathHasImageDifference(path)) {
-                diff.add(path);
-            }
-        }
-        imageDiffFilterActive = true;
-        imageDiffFilterBtn.setText("显示全部列表");
-        applyFilteredList(diff, sourceOrder.size(), "图片差异 ");
+        toggleFilter(() -> imageDiffFilterActive, active -> imageDiffFilterActive = active,
+                imageDiffFilterBtn, "图片差异筛选");
     }
 
     public synchronized void addCompare(WzCanvasProperty to, WzCanvasProperty from) {
@@ -722,7 +1195,7 @@ public final class ImageCompareDialog extends JFrame {
         }
         toMap.put(path, to);
         fromMap.put(path, from);
-        setStatus("已修改 " + changedPaths.size() + " / " + getTotalPathCount() + " 条");
+        setStatus("扫描中 " + getTotalPathCount() + " 条...");
 
         if (collections.size() > 25) {
             boolean selFirst = listModel.getSize() == 0;
@@ -737,15 +1210,26 @@ public final class ImageCompareDialog extends JFrame {
 
     public void completeScan() {
         flushCollectionsToListModel();
+        setStatus("正在建立描点索引...");
+        toOriginCache.buildIndex();
+        fromOriginCache.buildIndex();
+        Collection<String> paths = fullPathsInOrder.isEmpty() ? toMap.keySet() : fullPathsInOrder;
+        toOriginCache.preload(paths);
+        fromOriginCache.preload(paths);
+        originCacheReady = true;
         if (listModel.getSize() == 0) {
-            if ((sizeMismatchFilterActive || imageDiffFilterActive) && !toMap.isEmpty()) {
-                String hint = sizeMismatchFilterActive ? "大小差异筛选下无尺寸不一致项" : "图片差异筛选下无内容差异项";
-                setStatus("扫描完毕：" + hint + "，可点「显示全部列表」。");
+            if (isAnyFilterActive() && !toMap.isEmpty()) {
+                setStatus("扫描完毕：筛选[" + buildFilterStatusPrefix() + "] 下无匹配项，可取消筛选条件查看全部。");
             } else {
                 setStatus("扫描完毕，找不到数据。");
             }
         } else {
-            setStatus("已修改 " + changedPaths.size() + " / " + getTotalPathCount() + " 条");
+            if (stringList.getSelectedIndex() < 0) {
+                stringList.setSelectedIndex(0);
+                stringList.ensureIndexIsVisible(0);
+                onStringSelected(listModel.get(0));
+            }
+            updateStatusWithStats();
         }
     }
 
@@ -753,19 +1237,23 @@ public final class ImageCompareDialog extends JFrame {
      * 在对话框关闭时清理数据
      */
     private void onDialogClosing() {
+        if (dialogClosed) {
+            return;
+        }
+        dialogClosed = true;
+        saveLayoutPreferences();
+        if (saveLayoutTimer != null) {
+            saveLayoutTimer.stop();
+        }
         listModel.clear();
         toMap.clear();
         fromMap.clear();
         fullPathsInOrder.clear();
         changedPaths.clear();
-        sizeMismatchFilterActive = false;
-        imageDiffFilterActive = false;
-        if (sizeMismatchFilterBtn != null) {
-            sizeMismatchFilterBtn.setText("大小差异筛选");
-        }
-        if (imageDiffFilterBtn != null) {
-            imageDiffFilterBtn.setText("图片差异筛选");
-        }
+        toOriginCache.clear();
+        fromOriginCache.clear();
+        originCacheReady = false;
+        deactivateAllFilters();
         curTo = null;
         curFrom = null;
     }
