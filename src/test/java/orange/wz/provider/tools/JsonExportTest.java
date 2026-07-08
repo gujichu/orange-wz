@@ -4,9 +4,11 @@ import orange.wz.provider.WzImage;
 import orange.wz.provider.properties.WzFloatProperty;
 import orange.wz.provider.properties.WzIntProperty;
 import orange.wz.provider.properties.WzListProperty;
+import orange.wz.provider.properties.WzSoundProperty;
 import orange.wz.provider.properties.WzStringProperty;
 import orange.wz.provider.properties.WzUOLProperty;
 import orange.wz.provider.properties.WzVectorProperty;
+import orange.wz.provider.properties.WzVideoProperty;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -148,13 +150,12 @@ class JsonExportTest {
 
         assertFalse(json.contains("_outlink"));
         assertFalse(json.contains("_Canvas"));
-        assertFalse(json.contains("\"origin\""));
         assertFalse(json.contains("\"delay\""));
         assertFalse(json.contains("\"icon\""));
         assertTrue(json.contains("\"info\":{\"_dirType\":\"sub\"}"));
-        assertTrue(json.contains("\"effect\":{\"_dirType\":\"sub\"}"));
-        assertFalse(json.contains("\"effect\":{\"_dirType\":\"sub\",\"0\":"));
+        assertTrue(json.contains("\"effect\":{\"_dirType\":\"sub\",\"0\":{\"_dirType\":\"sub\"}}"));
         assertTrue(json.contains("\"hit\":{\"_dirType\":\"sub\",\"0\":{\"_dirType\":\"sub\",\"randomHitOrigin\""));
+        assertTrue(json.contains("\"origin\":{\"_dirType\":\"vector\",\"_x\":1,\"_y\":2}"));
         assertTrue(json.contains("\"randomHitOrigin\":{\"_dirType\":\"int\",\"_value\":\"25\"}"));
         assertTrue(json.contains("\"effect0\":{\"_dirType\":\"sub\",\"z\":{\"_dirType\":\"int\",\"_value\":\"-1\"}}"));
     }
@@ -291,5 +292,130 @@ class JsonExportTest {
     void isCanvasResourceLinkShouldDetectCanvasPaths() {
         assertTrue(JsonExport.isCanvasResourceLink("Skill/_Canvas/2110.img/skill/21101004/effect/0"));
         assertFalse(JsonExport.isCanvasResourceLink("../80000218/icon"));
+    }
+
+    @Test
+    void shouldKeepOriginallyEmptyEffectAnimationFrames() {
+        WzImage image = new WzImage("100.img", null, new BinaryReader(IV, USER_KEY));
+        WzListProperty skillRoot = new WzListProperty("skill", image, image);
+        WzListProperty skill = new WzListProperty("1001011", skillRoot, image);
+        WzListProperty effect = new WzListProperty("effect", skill, image);
+        effect.addChild(new WzListProperty("0", effect, image), true);
+        skill.addChild(effect, true);
+        skillRoot.addChild(skill, true);
+        image.addChild(skillRoot, true);
+
+        JsonExport export = new JsonExport(image, 0);
+        String json = export.toJson(export.buildImageRootForTest());
+
+        assertTrue(json.contains("\"effect\":{\"_dirType\":\"sub\",\"0\":{\"_dirType\":\"sub\"}}"));
+    }
+
+    @Test
+    void shouldKeepZeroZOutsideEffectAnimationFrames() {
+        WzImage image = new WzImage("RuleFixture.img", null, new BinaryReader(IV, USER_KEY));
+        WzListProperty skillRoot = new WzListProperty("skill", image, image);
+        WzListProperty skill = new WzListProperty("skillWithTimeline", skillRoot, image);
+        WzListProperty start = new WzListProperty("start", skill, image);
+        start.addChild(new WzIntProperty("z", 0, start, image), true);
+        skill.addChild(start, true);
+        skillRoot.addChild(skill, true);
+        image.addChild(skillRoot, true);
+
+        JsonExport export = new JsonExport(image, 0);
+        String json = export.toJson(export.buildImageRootForTest());
+
+        assertTrue(json.contains("\"z\":{\"_dirType\":\"int\",\"_value\":\"0\"}"));
+    }
+
+    @Test
+    void shouldExportVideoPlaceholderLikeTms273() {
+        WzImage image = new WzImage("RuleFixture.img", null, new BinaryReader(IV, USER_KEY));
+        WzListProperty skillRoot = new WzListProperty("skill", image, image);
+        WzListProperty skill = new WzListProperty("skillWithScreenVideo", skillRoot, image);
+        WzListProperty screen = new WzListProperty("screen", skill, image);
+        screen.addChild(new WzVideoProperty("video", screen, image), true);
+        skill.addChild(screen, true);
+        skillRoot.addChild(skill, true);
+        image.addChild(skillRoot, true);
+
+        JsonExport export = new JsonExport(image, 0);
+        String json = export.toJson(export.buildImageRootForTest());
+
+        assertTrue(json.contains("\"video\":{\"_dirType\":\"wz_video\",\"_value\":\"WzComparerR2.WzLib.Wz_Video\"}"));
+    }
+
+    @Test
+    void shouldUseByteLengthForSpineSoundResources() {
+        WzImage image = new WzImage("RuleFixture.img", null, new BinaryReader(IV, USER_KEY));
+        WzListProperty skillRoot = new WzListProperty("skill", image, image);
+        WzListProperty skill = new WzListProperty("skillWithSpineResource", skillRoot, image);
+        WzListProperty spine = new WzListProperty("spine", skill, image);
+        WzListProperty frame = new WzListProperty("0", spine, image);
+        frame.addChild(new WzSoundProperty("material", 1000, new byte[0], new byte[29360], frame, image), true);
+        spine.addChild(frame, true);
+        skill.addChild(spine, true);
+        skillRoot.addChild(skill, true);
+        image.addChild(skillRoot, true);
+
+        JsonExport export = new JsonExport(image, 0);
+        String json = export.toJson(export.buildImageRootForTest());
+
+        assertTrue(json.contains("\"material\":{\"_dirType\":\"sound\",\"_length\":\"29360\"}"));
+    }
+
+    @Test
+    void shouldKeepDirectEffectOriginVector() {
+        WzImage image = new WzImage("RuleFixture.img", null, new BinaryReader(IV, USER_KEY));
+        WzListProperty skillRoot = new WzListProperty("skill", image, image);
+        WzListProperty skill = new WzListProperty("skillWithDirectEffectOrigin", skillRoot, image);
+        WzListProperty effect = new WzListProperty("effect", skill, image);
+        effect.addChild(new WzVectorProperty("origin", 57, 154, effect, image), true);
+        skill.addChild(effect, true);
+        skillRoot.addChild(skill, true);
+        image.addChild(skillRoot, true);
+
+        JsonExport export = new JsonExport(image, 0);
+        String json = export.toJson(export.buildImageRootForTest());
+
+        assertTrue(json.contains("\"origin\":{\"_dirType\":\"vector\",\"_x\":57,\"_y\":154}"));
+    }
+
+    @Test
+    void shouldKeepVideoOriginVector() {
+        WzImage image = new WzImage("RuleFixture.img", null, new BinaryReader(IV, USER_KEY));
+        WzListProperty skillRoot = new WzListProperty("skill", image, image);
+        WzListProperty skill = new WzListProperty("skillWithVideoOrigin", skillRoot, image);
+        WzListProperty screen = new WzListProperty("screen", skill, image);
+        WzVideoProperty video = new WzVideoProperty("video", screen, image);
+        video.addChild(new WzVectorProperty("origin", 684, 1615, video, image), true);
+        screen.addChild(video, true);
+        skill.addChild(screen, true);
+        skillRoot.addChild(skill, true);
+        image.addChild(skillRoot, true);
+
+        JsonExport export = new JsonExport(image, 0);
+        String json = export.toJson(export.buildImageRootForTest());
+
+        assertTrue(json.contains("\"video\":{\"_dirType\":\"wz_video\",\"_value\":\"WzComparerR2.WzLib.Wz_Video\",\"origin\":{\"_dirType\":\"vector\",\"_x\":684,\"_y\":1615}}"));
+    }
+
+    @Test
+    void shouldKeepOriginInNumericDataFramesOutsideVisualEffects() {
+        WzImage image = new WzImage("RuleFixture.img", null, new BinaryReader(IV, USER_KEY));
+        WzListProperty skillRoot = new WzListProperty("skill", image, image);
+        WzListProperty skill = new WzListProperty("skillWithDataFrames", skillRoot, image);
+        WzListProperty tile = new WzListProperty("tile", skill, image);
+        WzListProperty frame = new WzListProperty("0", tile, image);
+        frame.addChild(new WzVectorProperty("origin", 12, 34, frame, image), true);
+        tile.addChild(frame, true);
+        skill.addChild(tile, true);
+        skillRoot.addChild(skill, true);
+        image.addChild(skillRoot, true);
+
+        JsonExport export = new JsonExport(image, 0);
+        String json = export.toJson(export.buildImageRootForTest());
+
+        assertTrue(json.contains("\"tile\":{\"_dirType\":\"sub\",\"0\":{\"_dirType\":\"sub\",\"origin\":{\"_dirType\":\"vector\",\"_x\":12,\"_y\":34}}}"));
     }
 }

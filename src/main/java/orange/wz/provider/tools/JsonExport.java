@@ -111,7 +111,7 @@ public final class JsonExport {
             return root;
         }
         for (WzImageProperty prop : children) {
-            Map<String, Object> converted = convertProperty(prop, null, null);
+            Map<String, Object> converted = convertProperty(prop, null, null, isSpineResourceNode(prop.getName()));
             if (converted != null) {
                 root.put(prop.getName(), converted);
             }
@@ -119,13 +119,14 @@ public final class JsonExport {
         return root;
     }
 
-    private Map<String, Object> convertProperty(WzImageProperty property, String parentNodeName, String containerNodeName) {
+    private Map<String, Object> convertProperty(WzImageProperty property, String parentNodeName, String containerNodeName,
+                                                boolean insideSpineResource) {
         if (shouldSkipProperty(property, parentNodeName, containerNodeName)) {
             return null;
         }
 
         Map<String, Object> node = switch (property) {
-            case WzListProperty prop -> buildSubNode(prop.getChildren(), prop.getName(), parentNodeName);
+            case WzListProperty prop -> buildSubNode(prop.getChildren(), prop.getName(), parentNodeName, insideSpineResource);
             case WzStringProperty prop -> valueNode("string", prop.getValue());
             case WzIntProperty prop -> valueNode("int", String.valueOf(prop.getValue()));
             case WzShortProperty prop -> valueNode("short", String.valueOf(prop.getValue()));
@@ -148,8 +149,15 @@ public final class JsonExport {
             case WzSoundProperty prop -> {
                 Map<String, Object> sound = new LinkedHashMap<>();
                 sound.put("_dirType", "sound");
-                sound.put("_length", String.valueOf(prop.getLenMs()));
+                sound.put("_length", resolveSoundLength(prop, insideSpineResource));
                 yield sound;
+            }
+            case WzVideoProperty prop -> {
+                Map<String, Object> video = new LinkedHashMap<>();
+                video.put("_dirType", "wz_video");
+                video.put("_value", "WzComparerR2.WzLib.Wz_Video");
+                appendChildren(video, prop.getChildren(), prop.getName(), parentNodeName, insideSpineResource);
+                yield video;
             }
             case WzLuaProperty prop -> valueNode("string", prop.getString());
             case null, default -> {
@@ -164,21 +172,29 @@ public final class JsonExport {
     }
 
     private Map<String, Object> buildSubNode(List<WzImageProperty> children, String nodeName) {
-        return buildSubNode(children, nodeName, null);
+        return buildSubNode(children, nodeName, null, isSpineResourceNode(nodeName));
     }
 
-    private Map<String, Object> buildSubNode(List<WzImageProperty> children, String nodeName, String parentNodeName) {
+    private Map<String, Object> buildSubNode(List<WzImageProperty> children, String nodeName, String parentNodeName,
+                                             boolean insideSpineResource) {
         Map<String, Object> node = new LinkedHashMap<>();
         node.put("_dirType", "sub");
-        if (children != null) {
-            for (WzImageProperty child : children) {
-                Map<String, Object> converted = convertProperty(child, nodeName, parentNodeName);
-                if (converted != null) {
-                    node.put(child.getName(), converted);
-                }
+        boolean childInsideSpineResource = insideSpineResource || isSpineResourceNode(nodeName);
+        appendChildren(node, children, nodeName, parentNodeName, childInsideSpineResource);
+        return finalizeSubNode(node, nodeName, parentNodeName);
+    }
+
+    private void appendChildren(Map<String, Object> node, List<WzImageProperty> children, String nodeName,
+                                String parentNodeName, boolean insideSpineResource) {
+        if (children == null) {
+            return;
+        }
+        for (WzImageProperty child : children) {
+            Map<String, Object> converted = convertProperty(child, nodeName, parentNodeName, insideSpineResource);
+            if (converted != null) {
+                node.put(child.getName(), converted);
             }
         }
-        return finalizeSubNode(node, nodeName, parentNodeName);
     }
 
     private Map<String, Object> finalizeSubNode(Map<String, Object> node, String nodeName) {
@@ -195,10 +211,6 @@ public final class JsonExport {
         if (OMIT_WHEN_EMPTY.contains(nodeName)) {
             return null;
         }
-        if (nodeName != null && FRAME_INDEX.matcher(nodeName).matches()
-                && parentNodeName != null && EFFECT_CONTAINER.matcher(parentNodeName).matches()) {
-            return null;
-        }
         return node;
     }
 
@@ -209,29 +221,64 @@ public final class JsonExport {
         if ("_outlink".equals(property.getName())) {
             return true;
         }
-        if (property instanceof WzVectorProperty && "origin".equals(property.getName())) {
+        if (isVisualOrigin(property, parentNodeName, containerNodeName)) {
             return true;
         }
-        if ("delay".equals(property.getName())
-                && parentNodeName != null && FRAME_INDEX.matcher(parentNodeName).matches()
-                && containerNodeName != null && EFFECT_CONTAINER.matcher(containerNodeName).matches()) {
+        if ("delay".equals(property.getName()) && isVisualAnimationFrame(parentNodeName, containerNodeName)) {
             return true;
         }
-        if (property instanceof WzIntProperty intProp && "z".equals(property.getName()) && intProp.getValue() == 0) {
-            return true;
-        }
-        if (property instanceof WzShortProperty shortProp && "z".equals(property.getName()) && shortProp.getValue() == 0) {
+        if (isZeroZInEffectAnimationFrame(property, parentNodeName, containerNodeName)) {
             return true;
         }
         return switch (property) {
             case WzCanvasProperty ignored -> true;
             case WzConvexProperty ignored -> true;
             case WzRawDataProperty ignored -> true;
-            case WzVideoProperty ignored -> true;
             case WzUOLProperty prop -> isCanvasResourceLink(prop.getValue());
             case WzStringProperty prop -> isCanvasResourceLink(prop.getValue()) && "_outlink".equals(prop.getName());
             default -> false;
         };
+    }
+
+    private boolean isVisualOrigin(WzImageProperty property, String parentNodeName, String containerNodeName) {
+        return property instanceof WzVectorProperty
+                && "origin".equals(property.getName())
+                && (isVisualAnimationFrame(parentNodeName, containerNodeName)
+                || isIconResourceSlot(parentNodeName));
+    }
+
+    private boolean isVisualAnimationFrame(String parentNodeName, String containerNodeName) {
+        return parentNodeName != null && FRAME_INDEX.matcher(parentNodeName).matches()
+                && containerNodeName != null && EFFECT_CONTAINER.matcher(containerNodeName).matches();
+    }
+
+    private boolean isIconResourceSlot(String parentNodeName) {
+        return parentNodeName != null && OMIT_WHEN_EMPTY.contains(parentNodeName);
+    }
+
+    private boolean isZeroZInEffectAnimationFrame(WzImageProperty property, String parentNodeName, String containerNodeName) {
+        if (!"z".equals(property.getName()) || !isVisualAnimationFrame(parentNodeName, containerNodeName)) {
+            return false;
+        }
+        if (property instanceof WzIntProperty intProp) {
+            return intProp.getValue() == 0;
+        }
+        if (property instanceof WzShortProperty shortProp) {
+            return shortProp.getValue() == 0;
+        }
+        return false;
+    }
+
+    private static boolean isSpineResourceNode(String nodeName) {
+        return nodeName != null && nodeName.toLowerCase().contains("spine");
+    }
+
+    private static String resolveSoundLength(WzSoundProperty prop, boolean insideSpineResource) {
+        if (!insideSpineResource) {
+            return String.valueOf(prop.getLenMs());
+        }
+        byte[] bytes = prop.getSoundBytes(false);
+        return String.valueOf(bytes != null ? bytes.length : prop.getLenMs());
     }
 
     static boolean isCanvasResourceLink(String value) {
