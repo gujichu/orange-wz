@@ -23,6 +23,7 @@ public final class ExportXmlDialog extends BaseDialog<ExportXmlData> {
     private final JTextField pathField = new JTextField(20);
     private final JRadioButton defaultRadio = new JRadioButton("默认");
     private final JRadioButton v125Radio = new JRadioButton("125");
+    private final JRadioButton gms265Radio = new JRadioButton("GMS265");
 
     public ExportXmlDialog(EditPane editPane) {
         super("导出 XML", editPane);
@@ -80,7 +81,10 @@ public final class ExportXmlDialog extends BaseDialog<ExportXmlData> {
         ButtonGroup versionGroup = new ButtonGroup();
         versionGroup.add(defaultRadio);
         versionGroup.add(v125Radio);
-        if ("V125".equals(v.getExportVersion())) {
+        versionGroup.add(gms265Radio);
+        if ("GMS265".equals(v.getExportVersion())) {
+            gms265Radio.setSelected(true);
+        } else if ("V125".equals(v.getExportVersion())) {
             v125Radio.setSelected(true);
         } else {
             defaultRadio.setSelected(true);
@@ -89,6 +93,7 @@ public final class ExportXmlDialog extends BaseDialog<ExportXmlData> {
         JPanel versionPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         versionPanel.add(defaultRadio);
         versionPanel.add(v125Radio);
+        versionPanel.add(gms265Radio);
         addRow("导出版本", versionPanel);
 
         addRow("导出路径", pathField, selectBtn);
@@ -118,13 +123,20 @@ public final class ExportXmlDialog extends BaseDialog<ExportXmlData> {
 
         boolean linux = linuxRadio.isSelected();
 
-        ExportVersion version = v125Radio.isSelected() ? ExportVersion.V125 : ExportVersion.DEFAULT;
+        ExportVersion version;
+        if (gms265Radio.isSelected()) {
+            version = ExportVersion.GMS265;
+        } else if (v125Radio.isSelected()) {
+            version = ExportVersion.V125;
+        } else {
+            version = ExportVersion.DEFAULT;
+        }
 
         Values current = new Values();
         current.setIndent(indent);
         current.setMedia(meType);
         current.setLinuxLineSeparator(linux);
-        current.setExportVersion(version == ExportVersion.V125 ? "V125" : "DEFAULT");
+        current.setExportVersion(version.name());
         current.setExportPath(pathField.getText().trim());
         ExportXmlConfigIni.saveIfChanged(initialConfig, current);
 

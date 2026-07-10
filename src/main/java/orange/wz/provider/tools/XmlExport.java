@@ -44,14 +44,31 @@ public final class XmlExport {
         this.version = version;
     }
 
+    private boolean isLegacyStyle() {
+        return version == ExportVersion.V125 || version == ExportVersion.GMS265;
+    }
+
+    private boolean isGms265Style() {
+        return version == ExportVersion.GMS265;
+    }
+
+    private int effectiveIndent() {
+        return isGms265Style() ? 4 : indent;
+    }
+
+    private String selfClose() {
+        return isGms265Style() ? " />" : "/>";
+    }
+
     private void writeLineSeparator() throws IOException {
-        if (indent <= 0) return;
+        if (effectiveIndent() <= 0) return;
         writer.write(linux ? "\n" : "\r\n");
     }
 
     private void writeIndent() throws IOException {
-        if (indent <= 0 || curIndent <= 0) return;
-        int spaces = indent * curIndent;
+        int effectiveIndent = effectiveIndent();
+        if (effectiveIndent <= 0 || curIndent <= 0) return;
+        int spaces = effectiveIndent * curIndent;
         char[] buffer = new char[spaces];
         Arrays.fill(buffer, ' ');
         writer.write(buffer);
@@ -77,11 +94,13 @@ public final class XmlExport {
                     64 * 1024 // 64KB buffer（可以调大）
             );
 
-            writer.write("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
+            writer.write(isGms265Style()
+                    ? "<?xml version=\"1.0\" encoding=\"utf-8\" standalone=\"yes\"?>"
+                    : "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
             writeLineSeparator();
 
             String rootTag;
-            if (version == ExportVersion.V125) {
+            if (isLegacyStyle()) {
                 rootTag = "<imgdir name=\"" + imgName + "\">";
             } else {
                 rootTag = "<imgdir name=\"" + imgName + "\" indent=\"" + indent + "\" media=\"" + meType.name() + "\">";
@@ -109,7 +128,7 @@ public final class XmlExport {
                     String width = String.valueOf(prop.getWidth());
                     String height = String.valueOf(prop.getHeight());
                     String context;
-                    if (version == ExportVersion.V125) {
+                    if (isLegacyStyle()) {
                         context = "<canvas name=\"" + etName + "\" width=\"" + width + "\" height=\"" + height + "\"";
                     } else {
                         String format = String.valueOf(prop.getFormat().getValue());
@@ -127,7 +146,7 @@ public final class XmlExport {
 
                     List<WzImageProperty> children = prop.getChildren();
                     if (children.isEmpty()) {
-                        context += "/>";
+                        context += selfClose();
                         writer.write(context);
                         writeLineSeparator();
                     } else {
@@ -146,7 +165,7 @@ public final class XmlExport {
                     writer.write("<extended name=\"" + escapeText(prop.getName()) + "\"");
                     List<WzImageProperty> children = prop.getChildren();
                     if (children.isEmpty()) {
-                        writer.write("/>");
+                        writer.write(selfClose());
                         writeLineSeparator();
                     } else {
                         writer.write(">");
@@ -160,25 +179,25 @@ public final class XmlExport {
                     }
                 }
                 case WzDoubleProperty prop -> {
-                    writer.write("<double name=\"" + escapeText(prop.getName()) + "\" value=\"" + prop.getValue() + "\"/>");
+                    writer.write("<double name=\"" + escapeText(prop.getName()) + "\" value=\"" + prop.getValue() + "\"" + selfClose());
                     writeLineSeparator();
                 }
                 case WzFloatProperty prop -> {
-                    writer.write("<float name=\"" + escapeText(prop.getName()) + "\" value=\"" + prop.getValue() + "\"/>");
+                    writer.write("<float name=\"" + escapeText(prop.getName()) + "\" value=\"" + prop.getValue() + "\"" + selfClose());
                     writeLineSeparator();
                 }
                 case WzIntProperty prop -> {
-                    writer.write("<int name=\"" + escapeText(prop.getName()) + "\" value=\"" + prop.getValue() + "\"/>");
+                    writer.write("<int name=\"" + escapeText(prop.getName()) + "\" value=\"" + prop.getValue() + "\"" + selfClose());
                     writeLineSeparator();
                 }
                 case WzListProperty prop -> {
                     writer.write("<imgdir name=\"" + escapeText(prop.getName()) + "\"");
                     List<WzImageProperty> children = prop.getChildren();
                     if (children.isEmpty()) {
-                        if (version == ExportVersion.V125) {
+                        if (isLegacyStyle()) {
                             writer.write("></imgdir>");
                         } else {
-                            writer.write("/>");
+                            writer.write(selfClose());
                         }
                         writeLineSeparator();
                     } else {
@@ -193,15 +212,15 @@ public final class XmlExport {
                     }
                 }
                 case WzLongProperty prop -> {
-                    writer.write("<long name=\"" + escapeText(prop.getName()) + "\" value=\"" + prop.getValue() + "\"/>");
+                    writer.write("<long name=\"" + escapeText(prop.getName()) + "\" value=\"" + prop.getValue() + "\"" + selfClose());
                     writeLineSeparator();
                 }
                 case WzNullProperty prop -> {
-                    writer.write("<null name=\"" + escapeText(prop.getName()) + "\"/>");
+                    writer.write("<null name=\"" + escapeText(prop.getName()) + "\"" + selfClose());
                     writeLineSeparator();
                 }
                 case WzShortProperty prop -> {
-                    writer.write("<short name=\"" + escapeText(prop.getName()) + "\" value=\"" + prop.getValue() + "\"/>");
+                    writer.write("<short name=\"" + escapeText(prop.getName()) + "\" value=\"" + prop.getValue() + "\"" + selfClose());
                     writeLineSeparator();
                 }
                 case WzSoundProperty prop -> {
@@ -210,29 +229,31 @@ public final class XmlExport {
                     if (meType == MediaExportType.BASE64) {
                         String basehead = Base64Tool.coverBytesToBase64(prop.getHeader());
                         String basedata = Base64Tool.coverBytesToBase64(prop.getSoundBytes(false));
-                        context = context + " length=\"" + prop.getLenMs() + "\" basehead=\"" + basehead + "\" basedata=\"" + basedata + "\"/>";
+                        context = context + " length=\"" + prop.getLenMs() + "\" basehead=\"" + basehead + "\" basedata=\"" + basedata + "\"" + selfClose();
                     } else if (meType == MediaExportType.FILE) {
                         String basehead = Base64Tool.coverBytesToBase64(prop.getHeader());
-                        context = context + " length=\"" + prop.getLenMs() + "\" basehead=\"" + basehead + "\"/>";
+                        context = context + " length=\"" + prop.getLenMs() + "\" basehead=\"" + basehead + "\"" + selfClose();
 
                         String filename = FileTool.safeFileName(mediaFilename + prop.getName() + ".mp3");
                         Path p = mediaFolder.resolve(filename);
                         FileTool.saveFile(p, prop.getSoundBytes(false));
+                    } else {
+                        context = context + selfClose();
                     }
 
                     writer.write(context);
                     writeLineSeparator();
                 }
                 case WzStringProperty prop -> {
-                    writer.write("<string name=\"" + escapeText(prop.getName()) + "\" value=\"" + escapeText(prop.getValue()) + "\"/>");
+                    writer.write("<string name=\"" + escapeText(prop.getName()) + "\" value=\"" + escapeText(prop.getValue()) + "\"" + selfClose());
                     writeLineSeparator();
                 }
                 case WzUOLProperty prop -> {
-                    writer.write("<uol name=\"" + escapeText(prop.getName()) + "\" value=\"" + escapeText(prop.getValue()) + "\"/>");
+                    writer.write("<uol name=\"" + escapeText(prop.getName()) + "\" value=\"" + escapeText(prop.getValue()) + "\"" + selfClose());
                     writeLineSeparator();
                 }
                 case WzVectorProperty prop -> {
-                    writer.write("<vector name=\"" + escapeText(prop.getName()) + "\" x=\"" + prop.getX() + "\" y=\"" + prop.getY() + "\"/>");
+                    writer.write("<vector name=\"" + escapeText(prop.getName()) + "\" x=\"" + prop.getX() + "\" y=\"" + prop.getY() + "\"" + selfClose());
                     writeLineSeparator();
                 }
                 case null, default -> log.error("未知的节点类型: {}", property.getName());
@@ -252,9 +273,6 @@ public final class XmlExport {
             switch (c) {
                 case '"':
                     sb.append("&quot;");
-                    break;
-                case '\'':
-                    sb.append("&apos;");
                     break;
                 case '&':
                     sb.append("&amp;");

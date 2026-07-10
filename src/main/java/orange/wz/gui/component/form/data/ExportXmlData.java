@@ -7,7 +7,8 @@ import orange.wz.provider.tools.MediaExportType;
 public final class ExportXmlData {
     public enum ExportVersion {
         DEFAULT,
-        V125
+        V125,
+        GMS265
     }
 
     private final int indent;

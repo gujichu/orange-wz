@@ -24,7 +24,7 @@ public final class ExportXmlConfigIni {
         private int indent = 2;
         private MediaExportType media = MediaExportType.NONE;
         private boolean linuxLineSeparator;
-        /** {@code DEFAULT} 或 {@code V125} */
+        /** {@code DEFAULT}、{@code V125} 或 {@code GMS265} */
         private String exportVersion = "DEFAULT";
         private String exportPath = "";
 
@@ -167,6 +167,9 @@ public final class ExportXmlConfigIni {
         }
         if ("125".equals(t) || "v125".equalsIgnoreCase(t)) {
             return "V125";
+        }
+        if ("gms265".equalsIgnoreCase(t)) {
+            return "GMS265";
         }
         return "DEFAULT";
     }

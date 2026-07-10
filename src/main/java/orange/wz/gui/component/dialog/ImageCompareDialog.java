@@ -80,6 +80,10 @@ public final class ImageCompareDialog extends JFrame {
     private JButton originMismatchFilterBtn;
     private JButton imageDiffFilterBtn;
     private JButton batchSameSizeReplaceBtn;
+    private JButton repairSizeBtn;
+    private JButton replaceBtn;
+    private JProgressBar batchProgressBar;
+    private boolean batchSameSizeReplaceRunning;
 
     private boolean originCacheReady;
 
@@ -104,7 +108,7 @@ public final class ImageCompareDialog extends JFrame {
         if (owner != null) {
             setIconImage(owner.getIconImage());
         }
-        setDefaultCloseOperation(DISPOSE_ON_CLOSE);
+        setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
         setResizable(true);
         restoreWindowBounds(owner);
         setLayout(new BorderLayout(10, 10));
@@ -123,12 +127,12 @@ public final class ImageCompareDialog extends JFrame {
 
             @Override
             public void windowClosing(WindowEvent e) {
-                onDialogClosing();
+                requestDialogClose();
             }
 
             @Override
             public void windowClosed(WindowEvent e) {
-                onDialogClosing();
+                onDialogClosed();
             }
         });
 
@@ -407,13 +411,13 @@ public final class ImageCompareDialog extends JFrame {
         includeChildren.setSelected(true);
         replaceOrigin = new JCheckBox("替换Origin描点");
         replaceOrigin.setSelected(true);
-        JButton repairSizeBtn = new JButton("图片尺寸修补");
+        repairSizeBtn = new JButton("图片尺寸修补");
         sameSizeFilterBtn = new JButton("同尺寸筛选");
-        sizeMismatchFilterBtn = new JButton("大小差异筛选");
+        sizeMismatchFilterBtn = new JButton("不同尺寸筛选");
         originMismatchFilterBtn = new JButton("描点差异筛选");
         imageDiffFilterBtn = new JButton("图片差异筛选");
         batchSameSizeReplaceBtn = new JButton("同尺寸批量替换");
-        JButton replaceBtn = new JButton("替换 (空格键)");
+        replaceBtn = new JButton("替换 (空格键)");
         autoRepairOnReplace = new JCheckBox("自动修补");
         autoRepairOnReplace.setSelected(PREFS.getBoolean(PREF_AUTO_REPAIR_ON_REPLACE, true));
         autoRepairOnReplace.addItemListener(e ->
@@ -446,8 +450,18 @@ public final class ImageCompareDialog extends JFrame {
         ));
         statusLabel.setFont(statusLabel.getFont().deriveFont(Font.PLAIN, 12f));
 
+        batchProgressBar = new JProgressBar(0, 100);
+        batchProgressBar.setStringPainted(true);
+        batchProgressBar.setString("待执行");
+        batchProgressBar.setVisible(false);
+        batchProgressBar.setPreferredSize(new Dimension(260, 20));
+
+        JPanel statusPanel = new JPanel(new BorderLayout(8, 0));
+        statusPanel.add(statusLabel, BorderLayout.CENTER);
+        statusPanel.add(batchProgressBar, BorderLayout.EAST);
+
         wrapper.add(buttons, BorderLayout.NORTH);
-        wrapper.add(statusLabel, BorderLayout.SOUTH);
+        wrapper.add(statusPanel, BorderLayout.SOUTH);
 
         return wrapper;
     }
@@ -471,6 +485,9 @@ public final class ImageCompareDialog extends JFrame {
     }
 
     private void replaceImage() {
+        if (batchSameSizeReplaceRunning) {
+            return;
+        }
         List<String> selected = stringList.getSelectedValuesList();
         if (selected.isEmpty()) {
             return;
@@ -492,32 +509,51 @@ public final class ImageCompareDialog extends JFrame {
     }
 
     private void replaceSinglePath(String path, boolean advanceAfter) {
+        replaceSinglePath(path, advanceAfter, true, true);
+    }
+
+    private boolean replaceSinglePath(String path, boolean advanceAfter, boolean refreshPreview, boolean updateStats) {
+        return replaceSinglePath(path, advanceAfter, refreshPreview, updateStats,
+                new ReplaceOptions(autoRepairOnReplace.isSelected(), includeChildren.isSelected(), replaceOrigin.isSelected()),
+                true);
+    }
+
+    private boolean replaceSinglePath(String path, boolean advanceAfter, boolean refreshPreview,
+                                      boolean updateStats, ReplaceOptions options, boolean markChanged) {
         WzCanvasProperty to = toMap.get(path);
         WzCanvasProperty from = fromMap.get(path);
         if (to == null || from == null) {
-            return;
+            return false;
         }
-        curTo = to;
-        curFrom = from;
+        if (refreshPreview) {
+            curTo = to;
+            curFrom = from;
+        }
 
         BufferedImage image;
-        if (autoRepairOnReplace.isSelected()) {
+        if (options.autoRepairOnReplace()) {
             BufferedImage src = from.getPngImage(false);
             if (src == null) {
-                JOptionPane.showMessageDialog(this, "替换图解码失败，无法自动修补: " + path, "替换", JOptionPane.WARNING_MESSAGE);
-                return;
+                if (refreshPreview) {
+                    JOptionPane.showMessageDialog(this, "替换图解码失败，无法自动修补: " + path, "替换", JOptionPane.WARNING_MESSAGE);
+                }
+                return false;
             }
             int tw = to.getWidth();
             int th = to.getHeight();
             if (tw <= 0 || th <= 0) {
-                JOptionPane.showMessageDialog(this, "原图尺寸无效，无法自动修补: " + path, "替换", JOptionPane.ERROR_MESSAGE);
-                return;
+                if (refreshPreview) {
+                    JOptionPane.showMessageDialog(this, "原图尺寸无效，无法自动修补: " + path, "替换", JOptionPane.ERROR_MESSAGE);
+                }
+                return false;
             }
             int sw = src.getWidth();
             int sh = src.getHeight();
             if (sw <= 0 || sh <= 0) {
-                JOptionPane.showMessageDialog(this, "替换图尺寸无效，无法自动修补: " + path, "替换", JOptionPane.ERROR_MESSAGE);
-                return;
+                if (refreshPreview) {
+                    JOptionPane.showMessageDialog(this, "替换图尺寸无效，无法自动修补: " + path, "替换", JOptionPane.ERROR_MESSAGE);
+                }
+                return false;
             }
             WzPngFormat leftFormat = to.getFormat();
             int leftScale = to.getScale();
@@ -526,39 +562,50 @@ public final class ImageCompareDialog extends JFrame {
         } else {
             image = from.getPngImage(false);
             if (image == null) {
-                JOptionPane.showMessageDialog(this, "替换图解码失败: " + path, "替换", JOptionPane.WARNING_MESSAGE);
-                return;
+                if (refreshPreview) {
+                    JOptionPane.showMessageDialog(this, "替换图解码失败: " + path, "替换", JOptionPane.WARNING_MESSAGE);
+                }
+                return false;
             }
             to.setPng(image, from.getFormat(), from.getScale(),
                     Deflater.BEST_COMPRESSION, WzPngZlibCompressMode.FILTERED);
         }
 
         to.clearImage();
-        if (path.equals(stringList.getSelectedValue()) || stringList.getSelectedValuesList().contains(path)) {
+        if (refreshPreview && (path.equals(stringList.getSelectedValue()) || stringList.getSelectedValuesList().contains(path))) {
             imagePanel1.setImage(image);
             refreshLeftImageInfo();
         }
 
-        if (includeChildren.isSelected()) {
+        if (options.includeChildren()) {
             List<WzImageProperty> children = new ArrayList<>();
             from.getChildren().forEach(child -> children.add(child.deepClone(to)));
             to.replaceChildrenList(children);
         }
 
-        applyOriginReplace(path);
+        applyOriginReplace(path, refreshPreview, options.replaceOrigin());
 
-        changedPaths.add(path);
+        if (markChanged) {
+            changedPaths.add(path);
+        }
         if (advanceAfter) {
             int index = listModel.indexOf(path);
             if (index >= 0 && index + 1 < listModel.getSize()) {
                 stringList.setSelectedIndex(index + 1);
             }
         }
-        updateStatusWithStats();
+        if (updateStats) {
+            updateStatusWithStats();
+        }
+        return true;
     }
 
     private void applyOriginReplace(String canvasPath) {
-        if (!replaceOrigin.isSelected()) {
+        applyOriginReplace(canvasPath, true, replaceOrigin.isSelected());
+    }
+
+    private void applyOriginReplace(String canvasPath, boolean refreshPreview, boolean replaceOriginSelected) {
+        if (!replaceOriginSelected) {
             return;
         }
         CanvasOriginCache.OriginEntry fromEntry = fromOriginCache.get(canvasPath);
@@ -569,13 +616,19 @@ public final class ImageCompareDialog extends JFrame {
         if (CanvasOriginCache.applyOrigin(toEntry.metaNode(), fromEntry.x(), fromEntry.y())) {
             toOriginCache.put(canvasPath, CanvasOriginCache.OriginEntry.of(
                     toEntry.metaNode(), toEntry.metaPath(), fromEntry.x(), fromEntry.y(), true));
-            if (canvasPath.equals(stringList.getSelectedValue())) {
+            if (refreshPreview && canvasPath.equals(stringList.getSelectedValue())) {
                 refreshLeftImageInfo();
             }
         }
     }
 
     private void batchReplaceSameSize() {
+        if (batchSameSizeReplaceRunning) {
+            JOptionPane.showMessageDialog(this,
+                    "同尺寸批量替换正在执行中，请等待当前任务完成。",
+                    "同尺寸批量替换", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
         int totalInList = listModel.getSize();
         List<String> targets = collectSameSizeDiffPathsInCurrentList();
         if (targets.isEmpty()) {
@@ -591,10 +644,112 @@ public final class ImageCompareDialog extends JFrame {
         if (confirm != JOptionPane.YES_OPTION) {
             return;
         }
-        for (String path : targets) {
-            replaceSinglePath(path, false);
+        startBatchSameSizeReplace(targets);
+    }
+
+    private void startBatchSameSizeReplace(List<String> targets) {
+        batchSameSizeReplaceRunning = true;
+        setBatchControlsEnabled(false);
+        batchProgressBar.setVisible(true);
+        batchProgressBar.setValue(0);
+        batchProgressBar.setString("0 / " + targets.size() + " (0%)");
+        setStatus("同尺寸批量替换准备执行...");
+
+        ReplaceOptions options = new ReplaceOptions(
+                autoRepairOnReplace.isSelected(), includeChildren.isSelected(), replaceOrigin.isSelected());
+
+        SwingWorker<BatchReplaceResult, BatchReplaceProgress> worker = new SwingWorker<>() {
+            @Override
+            protected BatchReplaceResult doInBackground() {
+                int success = 0;
+                int failed = 0;
+                int total = targets.size();
+                long lastPublishAt = 0L;
+                List<String> changed = new ArrayList<>();
+                for (int i = 0; i < total; i++) {
+                    String path = targets.get(i);
+                    boolean ok = replaceSinglePath(path, false, false, false, options, false);
+                    if (ok) {
+                        success++;
+                        changed.add(path);
+                    } else {
+                        failed++;
+                    }
+                    int done = i + 1;
+                    long now = System.currentTimeMillis();
+                    if (done == total || done == 1 || now - lastPublishAt >= 120L) {
+                        publish(new BatchReplaceProgress(done, total, success, failed, path));
+                        lastPublishAt = now;
+                    }
+                }
+                return new BatchReplaceResult(total, success, failed, changed);
+            }
+
+            @Override
+            protected void process(List<BatchReplaceProgress> chunks) {
+                BatchReplaceProgress progress = chunks.get(chunks.size() - 1);
+                int percent = progress.percent();
+                batchProgressBar.setValue(percent);
+                batchProgressBar.setString(progress.done() + " / " + progress.total() + " (" + percent + "%)");
+                setStatus(String.format("同尺寸批量替换中：%d / %d，成功 %d，失败 %d，当前 %s",
+                        progress.done(), progress.total(), progress.success(), progress.failed(), progress.path()));
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    BatchReplaceResult result = get();
+                    batchProgressBar.setValue(100);
+                    batchProgressBar.setString(result.total() + " / " + result.total() + " (100%)");
+                    changedPaths.addAll(result.changedPaths());
+                    refreshListKeepingFilter();
+                    setStatus(String.format("同尺寸批量替换完成：共 %d，成功 %d，失败 %d。",
+                            result.total(), result.success(), result.failed()));
+                    String selectedPath = stringList.getSelectedValue();
+                    if (selectedPath != null) {
+                        onStringSelected(selectedPath);
+                    }
+                } catch (Exception ex) {
+                    setStatus("同尺寸批量替换失败：" + ex.getMessage());
+                    JOptionPane.showMessageDialog(ImageCompareDialog.this,
+                            "同尺寸批量替换失败：\n" + ex.getMessage(),
+                            "同尺寸批量替换", JOptionPane.ERROR_MESSAGE);
+                } finally {
+                    batchSameSizeReplaceRunning = false;
+                    setBatchControlsEnabled(true);
+                }
+            }
+        };
+        worker.execute();
+    }
+
+    private void setBatchControlsEnabled(boolean enabled) {
+        includeChildren.setEnabled(enabled);
+        replaceOrigin.setEnabled(enabled);
+        autoRepairOnReplace.setEnabled(enabled);
+        repairSizeBtn.setEnabled(enabled);
+        sameSizeFilterBtn.setEnabled(enabled);
+        sizeMismatchFilterBtn.setEnabled(enabled);
+        originMismatchFilterBtn.setEnabled(enabled);
+        imageDiffFilterBtn.setEnabled(enabled);
+        batchSameSizeReplaceBtn.setEnabled(enabled);
+        replaceBtn.setEnabled(enabled);
+        stringList.setEnabled(enabled);
+    }
+
+    private record ReplaceOptions(boolean autoRepairOnReplace, boolean includeChildren, boolean replaceOrigin) {
+    }
+
+    private record BatchReplaceProgress(int done, int total, int success, int failed, String path) {
+        int percent() {
+            if (total <= 0) {
+                return 0;
+            }
+            return Math.min(100, Math.max(0, (int) Math.round(done * 100.0 / total)));
         }
-        refreshListKeepingFilter();
+    }
+
+    private record BatchReplaceResult(int total, int success, int failed, List<String> changedPaths) {
     }
 
     private List<String> collectSameSizeDiffPathsInCurrentList() {
@@ -658,6 +813,9 @@ public final class ImageCompareDialog extends JFrame {
      * 将左侧「原图」按右侧「替换」图的画布尺寸调整：不拉伸变形。
      */
     private void repairImageSizeToReference() {
+        if (batchSameSizeReplaceRunning) {
+            return;
+        }
         List<String> selected = stringList.getSelectedValuesList();
         if (selected.isEmpty()) {
             return;
@@ -1067,7 +1225,7 @@ public final class ImageCompareDialog extends JFrame {
 
     private void updateAllFilterButtonStates() {
         updateFilterButtonState(sameSizeFilterBtn, sameSizeFilterActive, "同尺寸筛选");
-        updateFilterButtonState(sizeMismatchFilterBtn, sizeMismatchFilterActive, "大小差异筛选");
+        updateFilterButtonState(sizeMismatchFilterBtn, sizeMismatchFilterActive, "不同尺寸筛选");
         updateFilterButtonState(originMismatchFilterBtn, originMismatchFilterActive, "描点差异筛选");
         updateFilterButtonState(imageDiffFilterBtn, imageDiffFilterActive, "图片差异筛选");
     }
@@ -1084,7 +1242,7 @@ public final class ImageCompareDialog extends JFrame {
             parts.add("同尺寸差异");
         }
         if (sizeMismatchFilterActive) {
-            parts.add("大小差异");
+            parts.add("不同尺寸");
         }
         if (originMismatchFilterActive) {
             parts.add("描点差异");
@@ -1173,7 +1331,7 @@ public final class ImageCompareDialog extends JFrame {
 
     private void toggleSizeMismatchFilter() {
         toggleFilter(() -> sizeMismatchFilterActive, active -> sizeMismatchFilterActive = active,
-                sizeMismatchFilterBtn, "大小差异筛选");
+                sizeMismatchFilterBtn, "不同尺寸筛选");
     }
 
     private void toggleOriginMismatchFilter() {
@@ -1233,10 +1391,20 @@ public final class ImageCompareDialog extends JFrame {
         }
     }
 
+    private void requestDialogClose() {
+        if (batchSameSizeReplaceRunning) {
+            JOptionPane.showMessageDialog(this,
+                    "同尺寸批量替换正在执行中，请等待完成后再关闭窗口。",
+                    "图片对比", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        dispose();
+    }
+
     /**
-     * 在对话框关闭时清理数据
+     * 在对话框关闭后清理数据
      */
-    private void onDialogClosing() {
+    private void onDialogClosed() {
         if (dialogClosed) {
             return;
         }
