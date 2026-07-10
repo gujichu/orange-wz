@@ -13,7 +13,9 @@ import orange.wz.gui.utils.ChineseReplaceLauncher;
 import orange.wz.gui.utils.JMessageUtil;
 import orange.wz.gui.utils.MultiNodeNameParser;
 import orange.wz.gui.utils.Outlink;
+import orange.wz.gui.utils.SwingWorkerHelper;
 import orange.wz.gui.utils.TreePathUtil;
+import orange.wz.gui.utils.WzParseHelper;
 import orange.wz.provider.*;
 
 import javax.swing.*;
@@ -185,9 +187,8 @@ public final class WzFileMenu extends JPopupMenu {
 
             WzDirectory wzDirectory = (WzDirectory) node.getUserObject();
             WzFile wzFile = wzDirectory.getWzFile();
-            if (!wzFile.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzFile.getName(), wzFile.getStatus().getMessage());
-                throw new RuntimeException();
+            if (!WzParseHelper.ensureParsed(wzFile)) {
+                return;
             }
 
             List<WzDirectory> created = new ArrayList<>(names.size());
@@ -244,9 +245,8 @@ public final class WzFileMenu extends JPopupMenu {
 
             WzDirectory wzDirectory = (WzDirectory) node.getUserObject();
             WzFile wzFile = wzDirectory.getWzFile();
-            if (!wzFile.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzFile.getName(), wzFile.getStatus().getMessage());
-                throw new RuntimeException();
+            if (!WzParseHelper.ensureParsed(wzFile)) {
+                return;
             }
 
             List<WzImage> created = new ArrayList<>(names.size());
@@ -364,13 +364,10 @@ public final class WzFileMenu extends JPopupMenu {
 
                 @Override
                 protected void done() {
-                    try {
-                        get();
+                    SwingWorkerHelper.finish(this, () -> {
                         Instant end = Instant.now();
                         MainFrame.getInstance().setStatusText("Outlink 结束，耗时 %d 秒", Duration.between(now, end).toSeconds());
-                    } catch (Exception ex) {
-                        throw new RuntimeException(ex);
-                    }
+                    });
                 }
             };
             worker.execute();

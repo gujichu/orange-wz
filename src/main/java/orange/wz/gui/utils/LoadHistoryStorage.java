@@ -56,15 +56,18 @@ public final class LoadHistoryStorage {
                     return bundle.toAbsolutePath();
                 }
             }
-            Path jarParent = Paths.get(LoadHistoryStorage.class.getProtectionDomain()
-                    .getCodeSource().getLocation().toURI()).getParent();
-            if (jarParent != null) {
-                Path bundle = jarParent.resolve(RELATIVE_HISTORY).normalize();
-                if (Files.isRegularFile(bundle)) {
-                    return bundle.toAbsolutePath();
+            var codeSource = LoadHistoryStorage.class.getProtectionDomain().getCodeSource();
+            if (codeSource != null && codeSource.getLocation() != null) {
+                Path jarParent = Paths.get(codeSource.getLocation().toURI()).getParent();
+                if (jarParent != null) {
+                    Path bundle = jarParent.resolve(RELATIVE_HISTORY).normalize();
+                    if (Files.isRegularFile(bundle)) {
+                        return bundle.toAbsolutePath();
+                    }
                 }
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            log.debug("无法从 jar 路径解析 history.json，将使用工作目录: {}", e.toString());
         }
         return workDir.toAbsolutePath();
     }

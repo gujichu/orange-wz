@@ -214,9 +214,8 @@ public final class WzImageMenu extends JPopupMenu {
             }
 
             WzImage wzImage = (WzImage) node.getUserObject();
-            if (!wzImage.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzImage.getName(), wzImage.getStatus().getMessage());
-                throw new RuntimeException();
+            if (!WzParseHelper.ensureParsed(wzImage)) {
+                return;
             }
 
             WzCanvasProperty prop = new WzCanvasProperty(name, wzImage, wzImage);
@@ -258,9 +257,8 @@ public final class WzImageMenu extends JPopupMenu {
             }
 
             WzImage wzImage = (WzImage) node.getUserObject();
-            if (!wzImage.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzImage.getName(), wzImage.getStatus().getMessage());
-                throw new RuntimeException();
+            if (!WzParseHelper.ensureParsed(wzImage)) {
+                return;
             }
 
             WzConvexProperty prop = new WzConvexProperty(name, wzImage, wzImage);
@@ -300,9 +298,8 @@ public final class WzImageMenu extends JPopupMenu {
             }
 
             WzImage wzImage = (WzImage) node.getUserObject();
-            if (!wzImage.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzImage.getName(), wzImage.getStatus().getMessage());
-                throw new RuntimeException();
+            if (!WzParseHelper.ensureParsed(wzImage)) {
+                return;
             }
 
             WzDoubleProperty prop = new WzDoubleProperty(name, data.getValue(), wzImage, wzImage);
@@ -342,9 +339,8 @@ public final class WzImageMenu extends JPopupMenu {
             }
 
             WzImage wzImage = (WzImage) node.getUserObject();
-            if (!wzImage.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzImage.getName(), wzImage.getStatus().getMessage());
-                throw new RuntimeException();
+            if (!WzParseHelper.ensureParsed(wzImage)) {
+                return;
             }
 
             WzFloatProperty prop = new WzFloatProperty(name, data.getValue(), wzImage, wzImage);
@@ -384,9 +380,8 @@ public final class WzImageMenu extends JPopupMenu {
             }
 
             WzImage wzImage = (WzImage) node.getUserObject();
-            if (!wzImage.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzImage.getName(), wzImage.getStatus().getMessage());
-                throw new RuntimeException();
+            if (!WzParseHelper.ensureParsed(wzImage)) {
+                return;
             }
 
             WzIntProperty prop = new WzIntProperty(name, data.getValue(), wzImage, wzImage);
@@ -426,9 +421,8 @@ public final class WzImageMenu extends JPopupMenu {
             }
 
             WzImage wzImage = (WzImage) node.getUserObject();
-            if (!wzImage.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzImage.getName(), wzImage.getStatus().getMessage());
-                throw new RuntimeException();
+            if (!WzParseHelper.ensureParsed(wzImage)) {
+                return;
             }
 
             WzListProperty prop = new WzListProperty(name, wzImage, wzImage);
@@ -468,9 +462,8 @@ public final class WzImageMenu extends JPopupMenu {
             }
 
             WzImage wzImage = (WzImage) node.getUserObject();
-            if (!wzImage.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzImage.getName(), wzImage.getStatus().getMessage());
-                throw new RuntimeException();
+            if (!WzParseHelper.ensureParsed(wzImage)) {
+                return;
             }
 
             WzLongProperty prop = new WzLongProperty(name, data.getValue(), wzImage, wzImage);
@@ -510,9 +503,8 @@ public final class WzImageMenu extends JPopupMenu {
             }
 
             WzImage wzImage = (WzImage) node.getUserObject();
-            if (!wzImage.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzImage.getName(), wzImage.getStatus().getMessage());
-                throw new RuntimeException();
+            if (!WzParseHelper.ensureParsed(wzImage)) {
+                return;
             }
 
             WzNullProperty prop = new WzNullProperty(name, wzImage, wzImage);
@@ -552,9 +544,8 @@ public final class WzImageMenu extends JPopupMenu {
             }
 
             WzImage wzImage = (WzImage) node.getUserObject();
-            if (!wzImage.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzImage.getName(), wzImage.getStatus().getMessage());
-                throw new RuntimeException();
+            if (!WzParseHelper.ensureParsed(wzImage)) {
+                return;
             }
 
             WzShortProperty prop = new WzShortProperty(name, data.getValue(), wzImage, wzImage);
@@ -594,9 +585,8 @@ public final class WzImageMenu extends JPopupMenu {
             }
 
             WzImage wzImage = (WzImage) node.getUserObject();
-            if (!wzImage.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzImage.getName(), wzImage.getStatus().getMessage());
-                throw new RuntimeException();
+            if (!WzParseHelper.ensureParsed(wzImage)) {
+                return;
             }
 
             WzSoundProperty prop = new WzSoundProperty(name, wzImage, wzImage);
@@ -637,9 +627,8 @@ public final class WzImageMenu extends JPopupMenu {
             }
 
             WzImage wzImage = (WzImage) node.getUserObject();
-            if (!wzImage.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzImage.getName(), wzImage.getStatus().getMessage());
-                throw new RuntimeException();
+            if (!WzParseHelper.ensureParsed(wzImage)) {
+                return;
             }
 
             WzStringProperty prop = new WzStringProperty(name, data.getValue(), wzImage, wzImage);
@@ -679,9 +668,8 @@ public final class WzImageMenu extends JPopupMenu {
             }
 
             WzImage wzImage = (WzImage) node.getUserObject();
-            if (!wzImage.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzImage.getName(), wzImage.getStatus().getMessage());
-                throw new RuntimeException();
+            if (!WzParseHelper.ensureParsed(wzImage)) {
+                return;
             }
 
             WzUOLProperty prop = new WzUOLProperty(name, data.getValue(), wzImage, wzImage);
@@ -721,9 +709,8 @@ public final class WzImageMenu extends JPopupMenu {
             }
 
             WzImage wzImage = (WzImage) node.getUserObject();
-            if (!wzImage.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzImage.getName(), wzImage.getStatus().getMessage());
-                throw new RuntimeException();
+            if (!WzParseHelper.ensureParsed(wzImage)) {
+                return;
             }
 
             WzVectorProperty prop = new WzVectorProperty(name, data.getX(), data.getY(), wzImage, wzImage);
@@ -765,9 +752,8 @@ public final class WzImageMenu extends JPopupMenu {
 
             DefaultMutableTreeNode node = (DefaultMutableTreeNode) selectedPaths[0].getLastPathComponent();
             WzImage wzImage = (WzImage) node.getUserObject();
-            if (!wzImage.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzImage.getName(), wzImage.getStatus().getMessage());
-                throw new RuntimeException();
+            if (!WzParseHelper.ensureParsed(wzImage)) {
+                return;
             }
             List<CanvasUtilData> data = new ArrayList<>();
             CanvasUtil.search(data, wzImage.getChildren());
@@ -799,13 +785,10 @@ public final class WzImageMenu extends JPopupMenu {
 
                 @Override
                 protected void done() {
-                    try {
-                        get();
+                    SwingWorkerHelper.finish(this, () -> {
                         Instant end = Instant.now();
                         MainFrame.getInstance().setStatusText("Outlink 结束，耗时 %d 秒", Duration.between(now, end).toSeconds());
-                    } catch (Exception ex) {
-                        throw new RuntimeException(ex);
-                    }
+                    });
                 }
             };
             worker.execute();

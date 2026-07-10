@@ -532,19 +532,17 @@ public final class EditPane extends JSplitPane {
         SwingWorker<Void, Void> worker = new SwingWorker<>() {
             @Override
             protected Void doInBackground() {
-                expandTreeNode(node, true, true, false);
-                tree.expandPath(new TreePath(node.getPath()));
+                EdtRunner.run(() -> {
+                    expandTreeNode(node, true, true, false);
+                    tree.expandPath(new TreePath(node.getPath()));
+                });
                 return null;
             }
 
             @Override
             protected void done() {
-                try {
-                    get();
-                    MainFrame.getInstance().setStatusText("%s 加载完毕", wzObject.getName());
-                } catch (Exception ex) {
-                    throw new RuntimeException(ex);
-                }
+                SwingWorkerHelper.finish(this, () ->
+                        MainFrame.getInstance().setStatusText("%s 加载完毕", wzObject.getName()));
             }
         };
 
@@ -571,16 +569,14 @@ public final class EditPane extends JSplitPane {
                 children.forEach(child -> insertNodeToTree(node, child, expand));
             }
             case WzDirectory wzDir -> {
-                if (wzDir.isWzFile() && parseWz && !wzDir.getWzFile().parse()) {
-                    MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzDir.getName(), wzDir.getWzFile().getStatus().getMessage());
-                    throw new RuntimeException();
+                if (wzDir.isWzFile() && parseWz) {
+                    WzParseHelper.requireParsed(wzDir.getWzFile());
                 }
                 addChildrenRecursively(node, wzDir, expand);
             }
             case WzImage wzImg -> {
-                if (parseImg && !wzImg.parse()) {
-                    MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzImg.getName(), wzImg.getStatus().getMessage());
-                    throw new RuntimeException();
+                if (parseImg) {
+                    WzParseHelper.requireParsed(wzImg);
                 }
                 addChildrenRecursively(node, wzImg, expand);
             }
@@ -896,6 +892,13 @@ public final class EditPane extends JSplitPane {
      * @return 插入后生成的新 Node
      */
     public DefaultMutableTreeNode insertNodeToTree(DefaultMutableTreeNode parentNode, WzObject object, boolean expand, int index) {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            return EdtRunner.call(() -> insertNodeToTreeOnEdt(parentNode, object, expand, index));
+        }
+        return insertNodeToTreeOnEdt(parentNode, object, expand, index);
+    }
+
+    private DefaultMutableTreeNode insertNodeToTreeOnEdt(DefaultMutableTreeNode parentNode, WzObject object, boolean expand, int index) {
         DefaultMutableTreeNode newNode = new DefaultMutableTreeNode(object);
         treeModel.insertNodeInto(newNode, parentNode, index == -1 ? parentNode.getChildCount() : index);
 
@@ -936,6 +939,14 @@ public final class EditPane extends JSplitPane {
      * @param node 任意节点
      */
     public void removeNodeFromTree(DefaultMutableTreeNode node) {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            EdtRunner.run(() -> removeNodeFromTreeOnEdt(node));
+            return;
+        }
+        removeNodeFromTreeOnEdt(node);
+    }
+
+    private void removeNodeFromTreeOnEdt(DefaultMutableTreeNode node) {
         if (node == null) return;
         if (node.getParent() == null) return;
 
@@ -1106,6 +1117,23 @@ public final class EditPane extends JSplitPane {
             }
         }
         return null;
+    }
+
+    private OverwriteChoice askOverwriteChoice(String itemName) {
+        return EdtRunner.call(() -> OverwriteDialog.show(this, itemName));
+    }
+
+    private int removeChildNodeForOverwrite(DefaultMutableTreeNode parent, String childName) {
+        return EdtRunner.call(() -> {
+            DefaultMutableTreeNode childNode = findTreeNodeByName(parent, childName);
+            if (childNode == null) {
+                log.warn("覆盖时未在树中找到子节点: {}", childName);
+                return parent.getChildCount();
+            }
+            int index = parent.getIndex(childNode);
+            removeNodeFromTree(childNode);
+            return index;
+        });
     }
 
     /**
@@ -1807,22 +1835,13 @@ public final class EditPane extends JSplitPane {
         } else if (wzObject instanceof WzDirectory wzDir && wzDir.isWzFile()) {
             WzFile wzFile = wzDir.getWzFile();
 
-            if (!wzFile.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzFile.getName(), wzFile.getStatus().getMessage());
-                throw new RuntimeException();
-            }
+            WzParseHelper.requireParsed(wzFile);
             wzFile.exportFileToImg(folder, collector);
         } else if (wzObject instanceof WzMsImageFile wzMsImageFile) {
-            if (!wzMsImageFile.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzMsImageFile.getName(), wzMsImageFile.getStatus().getMessage());
-                throw new RuntimeException();
-            }
+            WzParseHelper.requireParsed(wzMsImageFile);
             wzMsImageFile.exportFileToImg(folder, collector);
         } else if (wzObject instanceof WzImageProperty prop && prop.isListProperty() && prop.getParent() instanceof WzMsImageFile wzMsImageFile) {
-            if (!wzMsImageFile.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzMsImageFile.getName(), wzMsImageFile.getStatus().getMessage());
-                throw new RuntimeException();
-            }
+            WzParseHelper.requireParsed(wzMsImageFile);
             String imgName = prop.getName().endsWith(".img") ? prop.getName() : prop.getName() + ".img";
             collector.add(new Pair<>(wzMsImageFile.toExportImage(prop), folder.resolve(imgName)));
         } else if (wzObject instanceof WzImage wzImage) {
@@ -1877,13 +1896,10 @@ public final class EditPane extends JSplitPane {
 
             @Override
             protected void done() {
-                try {
-                    get();
+                SwingWorkerHelper.finish(this, () -> {
                     Instant end = Instant.now();
                     MainFrame.getInstance().setStatusText("导出完成，耗时 %d 秒", Duration.between(now, end).toSeconds());
-                } catch (Exception ex) {
-                    throw new RuntimeException(ex);
-                }
+                });
             }
         }.execute();
     }
@@ -1912,23 +1928,14 @@ public final class EditPane extends JSplitPane {
         } else if (wzObject instanceof WzDirectory wzDir && wzDir.isWzFile()) {
             WzFile wzFile = wzDir.getWzFile();
 
-            if (!wzFile.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzFile.getName(), wzFile.getStatus().getMessage());
-                throw new RuntimeException();
-            }
+            WzParseHelper.requireParsed(wzFile);
 
             wzFile.exportFileToXml(folder, collector);
         } else if (wzObject instanceof WzMsImageFile wzMsImageFile) {
-            if (!wzMsImageFile.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzMsImageFile.getName(), wzMsImageFile.getStatus().getMessage());
-                throw new RuntimeException();
-            }
+            WzParseHelper.requireParsed(wzMsImageFile);
             wzMsImageFile.exportFileToXml(folder, collector);
         } else if (wzObject instanceof WzImageProperty prop && prop.isListProperty() && prop.getParent() instanceof WzMsImageFile wzMsImageFile) {
-            if (!wzMsImageFile.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzMsImageFile.getName(), wzMsImageFile.getStatus().getMessage());
-                throw new RuntimeException();
-            }
+            WzParseHelper.requireParsed(wzMsImageFile);
             String filename = prop.getName().endsWith(".img") ? prop.getName() + ".xml" : prop.getName() + ".img.xml";
             collector.add(new Pair<>(wzMsImageFile.toExportImage(prop), folder.resolve(filename)));
         } else if (wzObject instanceof WzImage wzImage) {
@@ -1983,13 +1990,10 @@ public final class EditPane extends JSplitPane {
 
             @Override
             protected void done() {
-                try {
-                    get();
+                SwingWorkerHelper.finish(this, () -> {
                     Instant end = Instant.now();
                     MainFrame.getInstance().setStatusText("导出完成，耗时 %d 秒", Duration.between(now, end).toSeconds());
-                } catch (Exception ex) {
-                    throw new RuntimeException(ex);
-                }
+                });
             }
         }.execute();
     }
@@ -2023,30 +2027,18 @@ public final class EditPane extends JSplitPane {
         } else if (wzObject instanceof WzDirectory wzDir && wzDir.isWzFile()) {
             WzFile wzFile = wzDir.getWzFile();
 
-            if (!wzFile.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzFile.getName(), wzFile.getStatus().getMessage());
-                throw new RuntimeException();
-            }
+            WzParseHelper.requireParsed(wzFile);
 
             wzFile.exportFileToJson(folder, collector, exportRootResolved);
         } else if (wzObject instanceof WzMsImageFile wzMsImageFile) {
-            if (!wzMsImageFile.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzMsImageFile.getName(), wzMsImageFile.getStatus().getMessage());
-                throw new RuntimeException();
-            }
+            WzParseHelper.requireParsed(wzMsImageFile);
             wzMsImageFile.exportFileToJson(folder, collector, exportRootResolved);
         } else if (wzObject instanceof WzImageProperty prop && prop.isListProperty() && prop.getParent() instanceof WzMsImageFile wzMsImageFile) {
-            if (!wzMsImageFile.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzMsImageFile.getName(), wzMsImageFile.getStatus().getMessage());
-                throw new RuntimeException();
-            }
+            WzParseHelper.requireParsed(wzMsImageFile);
             String filename = JsonExport.resolveJsonFileName(prop.getName().endsWith(".img") ? prop.getName() : prop.getName() + ".img");
             collector.add(new Pair<>(wzMsImageFile.toExportImage(prop), folder.resolve(filename)));
         } else if (wzObject instanceof WzImage wzImage) {
-            if (!wzImage.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzImage.getName(), wzImage.getStatus().getMessage());
-                throw new RuntimeException();
-            }
+            WzParseHelper.requireParsed(wzImage);
             if (wzImage.isListContainerImage()) {
                 Path dir = folder.resolve(JsonExport.resolveImageBaseName(wzImage.getName()));
                 for (WzImageProperty wrapper : wzImage.getChildren()) {
@@ -2112,13 +2104,10 @@ public final class EditPane extends JSplitPane {
 
             @Override
             protected void done() {
-                try {
-                    get();
+                SwingWorkerHelper.finish(this, () -> {
                     Instant end = Instant.now();
                     MainFrame.getInstance().setStatusText("JSON 导出完成，耗时 %d 秒", Duration.between(now, end).toSeconds());
-                } catch (Exception ex) {
-                    throw new RuntimeException(ex);
-                }
+                });
             }
         }.execute();
     }
@@ -2194,13 +2183,10 @@ public final class EditPane extends JSplitPane {
 
             @Override
             protected void done() {
-                try {
-                    get();
+                SwingWorkerHelper.finish(this, () -> {
                     Instant end = Instant.now();
                     MainFrame.getInstance().setStatusText("密钥修改完成，耗时 %d 秒，请自行保存文件以应用新的密钥。", Duration.between(now, end).toSeconds());
-                } catch (Exception ex) {
-                    throw new RuntimeException(ex);
-                }
+                });
             }
         }.execute();
     }
@@ -2236,17 +2222,13 @@ public final class EditPane extends JSplitPane {
                         if (choice == OverwriteChoice.SKIP_ALL) continue;
                         else if (choice == OverwriteChoice.OVERWRITE_ALL) {
                             targetDirectory.removeImageChild(imgName);
-                            DefaultMutableTreeNode childNode = findTreeNodeByName(node, imgName);
-                            index = node.getIndex(childNode);
-                            removeNodeFromTree(childNode);
+                            index = removeChildNodeForOverwrite(node, imgName);
                         } else {
-                            choice = OverwriteDialog.show(EditPane.this, imgName);
+                            choice = askOverwriteChoice(imgName);
                             switch (choice) {
                                 case OVERWRITE, OVERWRITE_ALL -> {
                                     targetDirectory.removeImageChild(imgName);
-                                    DefaultMutableTreeNode childNode = findTreeNodeByName(node, imgName);
-                                    index = node.getIndex(childNode);
-                                    removeNodeFromTree(childNode);
+                                    index = removeChildNodeForOverwrite(node, imgName);
                                 }
                                 case SKIP, SKIP_ALL, CANCEL -> {
                                     continue;
@@ -2274,12 +2256,8 @@ public final class EditPane extends JSplitPane {
 
             @Override
             protected void done() {
-                try {
-                    get();
-                    MainFrame.getInstance().setStatusText("共导入 %d 个文件", count[0]);
-                } catch (Exception ex) {
-                    throw new RuntimeException(ex);
-                }
+                SwingWorkerHelper.finish(this, () ->
+                        MainFrame.getInstance().setStatusText("共导入 %d 个文件", count[0]));
             }
         }.execute();
     }
@@ -2316,17 +2294,13 @@ public final class EditPane extends JSplitPane {
                         if (choice == OverwriteChoice.SKIP_ALL) continue;
                         else if (choice == OverwriteChoice.OVERWRITE_ALL) {
                             targetDirectory.removeImageChild(imgName);
-                            DefaultMutableTreeNode childNode = findTreeNodeByName(node, imgName);
-                            index = node.getIndex(childNode);
-                            removeNodeFromTree(childNode);
+                            index = removeChildNodeForOverwrite(node, imgName);
                         } else {
-                            choice = OverwriteDialog.show(EditPane.this, imgName);
+                            choice = askOverwriteChoice(imgName);
                             switch (choice) {
                                 case OVERWRITE, OVERWRITE_ALL -> {
                                     targetDirectory.removeImageChild(imgName);
-                                    DefaultMutableTreeNode childNode = findTreeNodeByName(node, imgName);
-                                    index = node.getIndex(childNode);
-                                    removeNodeFromTree(childNode);
+                                    index = removeChildNodeForOverwrite(node, imgName);
                                 }
                                 case SKIP, SKIP_ALL, CANCEL -> {
                                     continue;
@@ -2354,12 +2328,8 @@ public final class EditPane extends JSplitPane {
 
             @Override
             protected void done() {
-                try {
-                    get();
-                    MainFrame.getInstance().setStatusText("共导入 %d 个文件", count[0]);
-                } catch (Exception ex) {
-                    throw new RuntimeException(ex);
-                }
+                SwingWorkerHelper.finish(this, () ->
+                        MainFrame.getInstance().setStatusText("共导入 %d 个文件", count[0]));
             }
         }.execute();
     }
@@ -2383,19 +2353,15 @@ public final class EditPane extends JSplitPane {
                 }
 
                 if (!expanded) {
-                    tree.expandPath(new TreePath(node.getPath()));
+                    EdtRunner.run(() -> tree.expandPath(new TreePath(node.getPath())));
                 }
                 return null;
             }
 
             @Override
             protected void done() {
-                try {
-                    get();
-                    MainFrame.getInstance().setStatusText("共导入 %d 个文件", count[0]);
-                } catch (Exception ex) {
-                    throw new RuntimeException(ex);
-                }
+                SwingWorkerHelper.finish(this, () ->
+                        MainFrame.getInstance().setStatusText("共导入 %d 个文件", count[0]));
             }
         }.execute();
     }
@@ -2438,7 +2404,9 @@ public final class EditPane extends JSplitPane {
                                 isXml = true;
                             }
                             if (curDir.existImage(filename)) {
-                                if (choice == null) choice = OverwriteDialog.show(EditPane.this, filename);
+                                if (choice == null) {
+                                    choice = askOverwriteChoice(filename);
+                                }
 
                                 if (choice == OverwriteChoice.SKIP_ALL || choice == OverwriteChoice.SKIP) {
                                     if (choice == OverwriteChoice.SKIP) choice = null;
@@ -2491,12 +2459,8 @@ public final class EditPane extends JSplitPane {
 
             @Override
             protected void done() {
-                try {
-                    get();
-                    MainFrame.getInstance().setStatusText("共导入 %d 个文件夹", count[0]);
-                } catch (Exception ex) {
-                    throw new RuntimeException(ex);
-                }
+                SwingWorkerHelper.finish(this, () ->
+                        MainFrame.getInstance().setStatusText("共导入 %d 个文件夹", count[0]));
             }
         }.execute();
     }
@@ -2640,17 +2604,13 @@ public final class EditPane extends JSplitPane {
                         continue;
                     } else if (choice == OverwriteChoice.OVERWRITE_ALL) {
                         removeWzObjChild(parentWz, item);
-                        DefaultMutableTreeNode childNode = findTreeNodeByName(parentTree, item.getName());
-                        insertIndex = parentTree.getIndex(childNode);
-                        removeNodeFromTree(childNode);
+                        insertIndex = removeChildNodeForOverwrite(parentTree, item.getName());
                     } else {
-                        choice = OverwriteDialog.show(this, item.getName());
+                        choice = askOverwriteChoice(item.getName());
                         switch (choice) {
                             case OVERWRITE, OVERWRITE_ALL -> {
                                 removeWzObjChild(parentWz, item);
-                                DefaultMutableTreeNode childNode = findTreeNodeByName(parentTree, item.getName());
-                                insertIndex = parentTree.getIndex(childNode);
-                                removeNodeFromTree(childNode);
+                                insertIndex = removeChildNodeForOverwrite(parentTree, item.getName());
                             }
                             case SKIP, SKIP_ALL, CANCEL -> {
                                 continue;
@@ -2827,17 +2787,13 @@ public final class EditPane extends JSplitPane {
                         if (choice == OverwriteChoice.SKIP_ALL) continue;
                         else if (choice == OverwriteChoice.OVERWRITE_ALL) {
                             removeWzObjChild(to, item);
-                            DefaultMutableTreeNode childNode = findTreeNodeByName(node, item.getName());
-                            index = node.getIndex(childNode);
-                            removeNodeFromTree(childNode);
+                            index = removeChildNodeForOverwrite(node, item.getName());
                         } else {
-                            choice = OverwriteDialog.show(this, item.getName());
+                            choice = askOverwriteChoice(item.getName());
                             switch (choice) {
                                 case OVERWRITE, OVERWRITE_ALL -> {
                                     removeWzObjChild(to, item);
-                                    DefaultMutableTreeNode childNode = findTreeNodeByName(node, item.getName());
-                                    index = node.getIndex(childNode);
-                                    removeNodeFromTree(childNode);
+                                    index = removeChildNodeForOverwrite(node, item.getName());
                                 }
                                 case SKIP, SKIP_ALL, CANCEL -> {
                                     continue;
@@ -2982,21 +2938,13 @@ public final class EditPane extends JSplitPane {
                                 continue;
                             } else if (choice == OverwriteChoice.OVERWRITE_ALL) {
                                 removeWzObjChild(to, importedProp);
-                                DefaultMutableTreeNode childNode = findTreeNodeByName(node, importedProp.getName());
-                                if (childNode != null) {
-                                    index = node.getIndex(childNode);
-                                    removeNodeFromTree(childNode);
-                                }
+                                index = removeChildNodeForOverwrite(node, importedProp.getName());
                             } else {
-                                choice = OverwriteDialog.show(this, importedProp.getName());
+                                choice = askOverwriteChoice(importedProp.getName());
                                 switch (choice) {
                                     case OVERWRITE, OVERWRITE_ALL -> {
                                         removeWzObjChild(to, importedProp);
-                                        DefaultMutableTreeNode childNode = findTreeNodeByName(node, importedProp.getName());
-                                        if (childNode != null) {
-                                            index = node.getIndex(childNode);
-                                            removeNodeFromTree(childNode);
-                                        }
+                                        index = removeChildNodeForOverwrite(node, importedProp.getName());
                                     }
                                     case SKIP, SKIP_ALL, CANCEL -> {
                                         continue;
@@ -3077,7 +3025,7 @@ public final class EditPane extends JSplitPane {
             protected Void doInBackground() {
                 try {
                     EditPane fromPane = MainFrame.getInstance().getCenterPane().getAnotherPane(EditPane.this);
-                    ChineseUtil.initChineseImg(EditPane.this, fromPane);
+                    var dialog = ChineseUtil.createChineseImgDialog(EditPane.this, fromPane);
                     for (TreePath treePath : selectedPaths) {
                         DefaultMutableTreeNode node = (DefaultMutableTreeNode) treePath.getLastPathComponent();
                         WzObject to = (WzObject) node.getUserObject();
@@ -3088,15 +3036,25 @@ public final class EditPane extends JSplitPane {
                             continue;
                         }
 
-                        ChineseUtil.chineseImg(from, to);
+                        ChineseUtil.chineseImg(from, to, dialog);
                     }
 
-                    ChineseUtil.completeChineseImg();
-                    return null;
-                } catch (Exception e) {
-                    log.error(e.getMessage());
-                    return null;
+                    EdtRunner.run(dialog::completeScan);
+                } catch (WzParseHelper.ParseFailedException ex) {
+                    log.error(ex.getMessage(), ex);
+                    EdtRunner.run(() -> JMessageUtil.error("汉化对比", ex.getMessage()));
+                } catch (RuntimeException ex) {
+                    log.error(ex.getMessage(), ex);
+                    String message = ex.getMessage();
+                    EdtRunner.run(() -> JMessageUtil.error("汉化对比失败",
+                            message != null && !message.isBlank() ? message : "请查看日志"));
                 }
+                return null;
+            }
+
+            @Override
+            protected void done() {
+                SwingWorkerHelper.finish(this, null);
             }
         }.execute();
     }

@@ -46,6 +46,7 @@ public final class Outlink {
         }
     }
 
+    private static final Object INDEX_LOCK = new Object();
     private static IndexInfo indexInfo = null;
     private static String lastIndexPath = null;
     private static final WzKeyStorage wzKeyStorage = new WzKeyStorage();
@@ -68,7 +69,53 @@ public final class Outlink {
                            List<FailureItem> failures) {
     }
 
+    /**
+     * 在 EDT 上解析 Canvas 目录（可能弹出文件夹选择框）。
+     */
+    public static File resolveCanvasDirectory(List<WzObject> objects) {
+        if (objects == null || objects.isEmpty()) {
+            return null;
+        }
+        return EdtRunner.call(() -> resolveCanvasDirectoryOnEdt(objects));
+    }
+
+    private static File resolveCanvasDirectoryOnEdt(List<WzObject> objects) {
+        File canvasDir = findCanvasDirectory(objects.getFirst());
+        if (canvasDir == null) {
+            canvasDir = findSubCanvasDirectory(new File("."));
+            if (canvasDir == null) {
+                File selected = FileDialog.chooseOpenFolder("请选择包含Canvas的文件夹");
+                if (selected != null) {
+                    canvasDir = findSubCanvasDirectory(selected);
+                    if (canvasDir == null) {
+                        canvasDir = selected;
+                    }
+                }
+            }
+        }
+        return canvasDir;
+    }
+
     public static boolean replace(List<WzObject> objects) {
+        File canvasDir = resolveCanvasDirectory(objects);
+        if (canvasDir == null) {
+            MainFrame.getInstance().setStatusText("找不到Canvas目录！");
+            return false;
+        }
+        return replace(objects, canvasDir);
+    }
+
+    public static boolean replace(List<WzObject> objects, File canvasDir) {
+        if (objects == null || objects.isEmpty() || canvasDir == null) {
+            MainFrame.getInstance().setStatusText("找不到Canvas目录！");
+            return false;
+        }
+        synchronized (INDEX_LOCK) {
+            return replaceLocked(objects, canvasDir);
+        }
+    }
+
+    private static boolean replaceLocked(List<WzObject> objects, File canvasDir) {
         log.info("========================================");
         log.info("开始处理Outlink，传入的objects:");
         for (WzObject obj : objects) {
@@ -78,23 +125,6 @@ public final class Outlink {
         
         indexInfo = null;
         lastIndexPath = null;
-
-        File canvasDir = findCanvasDirectory(objects.getFirst());
-        if (canvasDir == null) {
-            canvasDir = findSubCanvasDirectory(new File("."));
-            if (canvasDir == null) {
-                File selected = FileDialog.chooseOpenFolder("请选择包含Canvas的文件夹");
-                if (selected != null) {
-                    canvasDir = findSubCanvasDirectory(selected);
-                    if (canvasDir == null) canvasDir = selected;
-                }
-            }
-        }
-
-        if (canvasDir == null) {
-            MainFrame.getInstance().setStatusText("找不到Canvas目录！");
-            return false;
-        }
 
         loadOrBuildIndex(objects.getFirst(), canvasDir);
 
@@ -145,12 +175,10 @@ public final class Outlink {
         File indexFile = new File(indexPath);
         boolean hasValidIndex = false;
         if (indexFile.exists()) {
-            try {
+            try (FileReader reader = new FileReader(indexFile)) {
                 Gson gson = new Gson();
-                FileReader reader = new FileReader(indexFile);
                 Type type = new TypeToken<IndexInfo>(){}.getType();
                 indexInfo = gson.fromJson(reader, type);
-                reader.close();
                 log.info("索引加载成功: {}", indexPath);
 
                 if (indexInfo != null && indexInfo.pathToCanvas != null && !indexInfo.pathToCanvas.isEmpty() &&
@@ -224,11 +252,9 @@ public final class Outlink {
             }
         }
 
-        try {
+        try (FileWriter writer = new FileWriter(indexFile)) {
             Gson gson = new Gson();
-            FileWriter writer = new FileWriter(indexFile);
             gson.toJson(indexInfo, writer);
-            writer.close();
             log.info("索引保存成功: {}", indexFile.getAbsolutePath());
         } catch (Exception e) {
             log.error("保存索引失败: {}", e.getMessage());

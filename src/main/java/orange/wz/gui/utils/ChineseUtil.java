@@ -1,6 +1,5 @@
 package orange.wz.gui.utils;
 
-import lombok.extern.slf4j.Slf4j;
 import orange.wz.gui.MainFrame;
 import orange.wz.gui.component.dialog.ImageCompareDialog;
 import orange.wz.gui.component.panel.EditPane;
@@ -15,6 +14,8 @@ import orange.wz.provider.properties.WzStringProperty;
 import java.util.List;
 import java.util.Objects;
 
+import lombok.extern.slf4j.Slf4j;
+
 @Slf4j
 public final class ChineseUtil {
 
@@ -27,26 +28,26 @@ public final class ChineseUtil {
         }
 
         if (to instanceof WzFile toFile && from instanceof WzFile fromFile) {
-            requireParsed(toFile);
-            requireParsed(fromFile);
+            WzParseHelper.requireParsed(toFile);
+            WzParseHelper.requireParsed(fromFile);
             toFile.getWzDirectory().getDirectories().forEach(toDir ->
                     collectReplacements(fromFile.getWzDirectory().getDirectory(toDir.getName()), toDir, out));
             toFile.getWzDirectory().getImages().forEach(toImage ->
                     collectReplacements(fromFile.getWzDirectory().getImage(toImage.getName()), toImage, out));
         } else if (to instanceof WzDirectory toDirectory && from instanceof WzDirectory fromDirectory) {
             if (toDirectory.isWzFile()) {
-                requireParsed(toDirectory.getWzFile());
+                WzParseHelper.requireParsed(toDirectory.getWzFile());
             }
             if (fromDirectory.isWzFile()) {
-                requireParsed(fromDirectory.getWzFile());
+                WzParseHelper.requireParsed(fromDirectory.getWzFile());
             }
             toDirectory.getDirectories().forEach(toDir ->
                     collectReplacements(fromDirectory.getDirectory(toDir.getName()), toDir, out));
             toDirectory.getImages().forEach(toImage ->
                     collectReplacements(fromDirectory.getImage(toImage.getName()), toImage, out));
         } else if (to instanceof WzImage toImage && from instanceof WzImage fromImage) {
-            requireParsed(toImage);
-            requireParsed(fromImage);
+            WzParseHelper.requireParsed(toImage);
+            WzParseHelper.requireParsed(fromImage);
             toImage.getChildren().forEach(img -> collectReplacements(fromImage.getChild(img.getName()), img, out));
         } else if (to instanceof WzListProperty toListProperty && from instanceof WzListProperty fromList) {
             toListProperty.getChildren().forEach(prop ->
@@ -84,45 +85,31 @@ public final class ChineseUtil {
                 && str.matches(".*[\\u4e00-\\u9fa5].*");
     }
 
-    private static ImageCompareDialog imageCompareDialog;
-
-    public static void initChineseImg(EditPane toEditPane, EditPane fromEditPane) {
-        imageCompareDialog = new ImageCompareDialog(MainFrame.getInstance(), toEditPane, fromEditPane);
+    public static ImageCompareDialog createChineseImgDialog(EditPane toEditPane, EditPane fromEditPane) {
+        return EdtRunner.call(() -> new ImageCompareDialog(MainFrame.getInstance(), toEditPane, fromEditPane));
     }
 
-    public static void completeChineseImg() {
-        imageCompareDialog.completeScan();
-    }
-
-    public static void chineseImg(WzObject from, WzObject to) {
-        if (from == null || to == null) {
+    public static void chineseImg(WzObject from, WzObject to, ImageCompareDialog dialog) {
+        if (from == null || to == null || dialog == null) {
             return;
         }
 
         if (to instanceof WzDirectory toDirectory && from instanceof WzDirectory fromDirectory) {
-            if (toDirectory.isWzFile() && !toDirectory.getWzFile().parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", toDirectory.getWzFile().getName(), toDirectory.getWzFile().getStatus().getMessage());
-                throw new RuntimeException();
+            if (toDirectory.isWzFile()) {
+                WzParseHelper.requireParsed(toDirectory.getWzFile());
             }
-            if (fromDirectory.isWzFile() && !fromDirectory.getWzFile().parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", fromDirectory.getWzFile().getName(), fromDirectory.getWzFile().getStatus().getMessage());
-                throw new RuntimeException();
+            if (fromDirectory.isWzFile()) {
+                WzParseHelper.requireParsed(fromDirectory.getWzFile());
             }
 
-            toDirectory.getDirectories().forEach(toDir -> chineseImg(fromDirectory.getDirectory(toDir.getName()), toDir));
-            toDirectory.getImages().forEach(toImage -> chineseImg(fromDirectory.getImage(toImage.getName()), toImage));
+            toDirectory.getDirectories().forEach(toDir -> chineseImg(fromDirectory.getDirectory(toDir.getName()), toDir, dialog));
+            toDirectory.getImages().forEach(toImage -> chineseImg(fromDirectory.getImage(toImage.getName()), toImage, dialog));
         } else if (to instanceof WzImage toImage && from instanceof WzImage fromImage) {
-            if (!toImage.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", toImage.getName(), toImage.getStatus().getMessage());
-                throw new RuntimeException();
-            }
-            if (!fromImage.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", fromImage.getName(), fromImage.getStatus().getMessage());
-                throw new RuntimeException();
-            }
-            toImage.getChildren().forEach(img -> chineseImg(fromImage.getChild(img.getName()), img));
+            WzParseHelper.requireParsed(toImage);
+            WzParseHelper.requireParsed(fromImage);
+            toImage.getChildren().forEach(img -> chineseImg(fromImage.getChild(img.getName()), img, dialog));
         } else if (to instanceof WzListProperty toListProperty && from instanceof WzListProperty fromList) {
-            toListProperty.getChildren().forEach(prop -> chineseImg(fromList.getChild(prop.getName()), prop));
+            toListProperty.getChildren().forEach(prop -> chineseImg(fromList.getChild(prop.getName()), prop, dialog));
         } else if (to instanceof WzCanvasProperty toCav && from instanceof WzCanvasProperty fromCav) {
             if (fromCav.getHeight() == 1 && fromCav.getWidth() == 1) {
                 fromCav.clearImage();
@@ -137,7 +124,7 @@ public final class ChineseUtil {
                         && fromCav.getFormat() == toCav.getFormat()
                         && fromCav.getScale() == toCav.getScale()
                         && diff == 0;
-                imageCompareDialog.addCompare(toCav, fromCav);
+                EdtRunner.run(() -> dialog.addCompare(toCav, fromCav));
                 if (!identical) {
                     log.debug("{} 差异率 {}", to.getPath(), diff);
                 }
@@ -146,20 +133,6 @@ public final class ChineseUtil {
                     toCav.clearImage();
                 }
             }
-        }
-    }
-
-    private static void requireParsed(WzFile file) {
-        if (!file.parse()) {
-            MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", file.getName(), file.getStatus().getMessage());
-            throw new RuntimeException();
-        }
-    }
-
-    private static void requireParsed(WzImage image) {
-        if (!image.parse()) {
-            MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", image.getName(), image.getStatus().getMessage());
-            throw new RuntimeException();
         }
     }
 

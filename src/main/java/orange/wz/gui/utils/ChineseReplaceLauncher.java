@@ -36,7 +36,8 @@ public final class ChineseReplaceLauncher {
             }
             try {
                 ChineseUtil.collectReplacements(from, to, entries);
-            } catch (RuntimeException ex) {
+            } catch (WzParseHelper.ParseFailedException ex) {
+                JMessageUtil.error(parent, "汉化替换", ex.getMessage());
                 return;
             }
         }

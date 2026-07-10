@@ -46,7 +46,7 @@ import static orange.wz.gui.Icons.*;
 @Slf4j
 @Getter
 public class MainFrame extends JFrame {
-    private static MainFrame instance;
+    private static volatile MainFrame instance;
     private static final Preferences prefs = Preferences.userNodeForPackage(MainFrame.class);
 
     private final WzKeyStorage wzKeyStorage = new WzKeyStorage();
@@ -70,11 +70,18 @@ public class MainFrame extends JFrame {
     private LogDialog logDialog;
 
     public static MainFrame getInstance() {
-        if (instance == null) {
-            instance = new MainFrame();
-            instance.checkUpdate();
+        MainFrame local = instance;
+        if (local == null) {
+            synchronized (MainFrame.class) {
+                local = instance;
+                if (local == null) {
+                    local = new MainFrame();
+                    instance = local;
+                    local.checkUpdate();
+                }
+            }
         }
-        return instance;
+        return local;
     }
 
     public MainFrame() {
@@ -137,12 +144,7 @@ public class MainFrame extends JFrame {
                     cavFormColor
             );
             if (cavFormColor != null) {
-                CanvasForm form = (CanvasForm) centerPane.getLeftEditPane().getNodeForms().get("canvas");
-                form.getImagePanel().setBackground(cavFormColor);
-                if (centerPane.isRightShowing()) {
-                    form = (CanvasForm) centerPane.getRightEditPane().getNodeForms().get("canvas");
-                    form.getImagePanel().setBackground(cavFormColor);
-                }
+                applyCanvasBackground(cavFormColor);
             }
         });
 
@@ -418,10 +420,26 @@ public class MainFrame extends JFrame {
                         response = requestByHttp(urlStr);
                     }
 
+                    if (response == null || response.isBlank()) {
+                        return null;
+                    }
+
                     final Gson gson = new Gson();
                     JsonObject json = gson.fromJson(response, JsonObject.class);
+                    if (json == null || !json.has("data") || json.get("data").isJsonNull()) {
+                        log.warn("检查更新返回无效 JSON: 缺少 data");
+                        return null;
+                    }
                     JsonObject data = json.getAsJsonObject("data");
+                    if (data == null || !data.has("attributes") || data.get("attributes").isJsonNull()) {
+                        log.warn("检查更新返回无效 JSON: 缺少 attributes");
+                        return null;
+                    }
                     JsonObject attributes = data.getAsJsonObject("attributes");
+                    if (attributes == null || !attributes.has("code") || !attributes.has("message")) {
+                        log.warn("检查更新返回无效 JSON: 缺少 code/message");
+                        return null;
+                    }
 
                     int code = attributes.get("code").getAsInt();
                     String message = attributes.get("message").getAsString();
@@ -487,6 +505,8 @@ public class MainFrame extends JFrame {
             while ((line = reader.readLine()) != null) {
                 sb.append(line);
             }
+        } finally {
+            conn.disconnect();
         }
         return sb.toString();
     }
@@ -507,7 +527,12 @@ public class MainFrame extends JFrame {
     }
 
     private void loadConfig() {
-        int kid = Integer.parseInt(prefs.get("keybox", "1"));
+        int kid = 1;
+        try {
+            kid = Integer.parseInt(prefs.get("keybox", "1"));
+        } catch (NumberFormatException e) {
+            log.warn("keybox 配置无效，已使用默认值 1", e);
+        }
         for (int i = 0; i < keyBox.getItemCount(); i++) {
             WzKey wzKey = keyBox.getItemAt(i);
             if (wzKey.getId() == kid) {
@@ -538,5 +563,21 @@ public class MainFrame extends JFrame {
     
     public boolean isUseOldSkillEncryption() {
         return useOldSkillEncryption;
+    }
+
+    private void applyCanvasBackground(Color color) {
+        if (color == null || centerPane == null) {
+            return;
+        }
+        CanvasForm leftForm = centerPane.getLeftEditPane().getCanvasForm();
+        if (leftForm != null && leftForm.getImagePanel() != null) {
+            leftForm.getImagePanel().setBackground(color);
+        }
+        if (centerPane.isRightShowing()) {
+            CanvasForm rightForm = centerPane.getRightEditPane().getCanvasForm();
+            if (rightForm != null && rightForm.getImagePanel() != null) {
+                rightForm.getImagePanel().setBackground(color);
+            }
+        }
     }
 }

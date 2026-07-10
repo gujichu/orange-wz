@@ -748,13 +748,10 @@ public final class WzListPropertyMenu extends JPopupMenu {
 
                 @Override
                 protected void done() {
-                    try {
-                        get();
+                    SwingWorkerHelper.finish(this, () -> {
                         Instant end = Instant.now();
                         MainFrame.getInstance().setStatusText("Outlink 结束，耗时 %d 秒", Duration.between(now, end).toSeconds());
-                    } catch (Exception ex) {
-                        throw new RuntimeException(ex);
-                    }
+                    });
                 }
             };
             worker.execute();

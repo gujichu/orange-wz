@@ -5,6 +5,8 @@ import orange.wz.gui.MainFrame;
 import orange.wz.gui.component.FileDialog;
 import orange.wz.gui.component.panel.EditPane;
 import orange.wz.gui.utils.JMessageUtil;
+import orange.wz.gui.utils.SwingWorkerHelper;
+import orange.wz.gui.utils.WzParseHelper;
 import orange.wz.provider.*;
 
 import javax.swing.*;
@@ -130,12 +132,8 @@ public final class WzFolderMenu extends JPopupMenu {
 
                 @Override
                 protected void done() {
-                    try {
-                        get();
-                        MainFrame.getInstance().setStatusText("%s 打包完成", wzFolder.getName());
-                    } catch (Exception ex) {
-                        throw new RuntimeException(ex);
-                    }
+                    SwingWorkerHelper.finish(this, () ->
+                            MainFrame.getInstance().setStatusText("%s 打包完成", wzFolder.getName()));
                 }
             }.execute();
         });
@@ -165,10 +163,7 @@ public final class WzFolderMenu extends JPopupMenu {
         WzFile wzFile = WzFile.createNewFile(savePath, fileVersion, wzFolder.getKeyBoxName(), wzFolder.getIv(), wzFolder.getKey());
         directories.forEach(directory -> wzFile.getWzDirectory().addChild(new WzDirectory(directory, wzFile.getWzDirectory(), wzFile)));
         imageFiles.forEach(imageFile -> {
-            if (!imageFile.parse(false)) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", imageFile.getName(), imageFile.getStatus().getMessage());
-                throw new RuntimeException();
-            }
+            WzParseHelper.requireParsed(imageFile, false);
             wzFile.getWzDirectory().addChild(imageFile);
         });
         wzFile.save();
@@ -193,16 +188,10 @@ public final class WzFolderMenu extends JPopupMenu {
                 packageSubToWz(subFolder, wzDirectory);
                 parent.addChild(wzDirectory);
             } else if (child instanceof WzImageFile imageFile) {
-                if (!imageFile.parse(false)) {
-                    MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", imageFile.getName(), imageFile.getStatus().getMessage());
-                    throw new RuntimeException();
-                }
+                WzParseHelper.requireParsed(imageFile, false);
                 parent.addChild(imageFile);
             } else if (child instanceof WzXmlFile xmlFile) {
-                if (!xmlFile.parse()) {
-                    MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", xmlFile.getName(), xmlFile.getStatus().getMessage());
-                    throw new RuntimeException();
-                }
+                WzParseHelper.requireParsed(xmlFile);
                 parent.addChild(xmlFile);
             }
             MainFrame.getInstance().updateProgress(++current, total);

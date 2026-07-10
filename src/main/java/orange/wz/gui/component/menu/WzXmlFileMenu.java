@@ -10,6 +10,7 @@ import orange.wz.gui.component.panel.EditPane;
 import orange.wz.gui.utils.CanvasUtil;
 import orange.wz.gui.utils.CanvasUtilData;
 import orange.wz.gui.utils.JMessageUtil;
+import orange.wz.gui.utils.WzParseHelper;
 import orange.wz.provider.WzFolder;
 import orange.wz.provider.WzImage;
 import orange.wz.provider.WzXmlFile;
@@ -246,9 +247,8 @@ public final class WzXmlFileMenu extends JPopupMenu {
             }
 
             WzXmlFile wzXmlFile = (WzXmlFile) node.getUserObject();
-            if (!wzXmlFile.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzXmlFile.getName(), wzXmlFile.getStatus().getMessage());
-                throw new RuntimeException();
+            if (!WzParseHelper.ensureParsed(wzXmlFile)) {
+                return;
             }
 
             WzCanvasProperty prop = new WzCanvasProperty(name, wzXmlFile, wzXmlFile);
@@ -290,9 +290,8 @@ public final class WzXmlFileMenu extends JPopupMenu {
             }
 
             WzXmlFile wzXmlFile = (WzXmlFile) node.getUserObject();
-            if (!wzXmlFile.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzXmlFile.getName(), wzXmlFile.getStatus().getMessage());
-                throw new RuntimeException();
+            if (!WzParseHelper.ensureParsed(wzXmlFile)) {
+                return;
             }
 
             WzConvexProperty prop = new WzConvexProperty(name, wzXmlFile, wzXmlFile);
@@ -332,9 +331,8 @@ public final class WzXmlFileMenu extends JPopupMenu {
             }
 
             WzXmlFile wzXmlFile = (WzXmlFile) node.getUserObject();
-            if (!wzXmlFile.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzXmlFile.getName(), wzXmlFile.getStatus().getMessage());
-                throw new RuntimeException();
+            if (!WzParseHelper.ensureParsed(wzXmlFile)) {
+                return;
             }
 
             WzDoubleProperty prop = new WzDoubleProperty(name, data.getValue(), wzXmlFile, wzXmlFile);
@@ -374,9 +372,8 @@ public final class WzXmlFileMenu extends JPopupMenu {
             }
 
             WzXmlFile wzXmlFile = (WzXmlFile) node.getUserObject();
-            if (!wzXmlFile.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzXmlFile.getName(), wzXmlFile.getStatus().getMessage());
-                throw new RuntimeException();
+            if (!WzParseHelper.ensureParsed(wzXmlFile)) {
+                return;
             }
 
             WzFloatProperty prop = new WzFloatProperty(name, data.getValue(), wzXmlFile, wzXmlFile);
@@ -416,9 +413,8 @@ public final class WzXmlFileMenu extends JPopupMenu {
             }
 
             WzXmlFile wzXmlFile = (WzXmlFile) node.getUserObject();
-            if (!wzXmlFile.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzXmlFile.getName(), wzXmlFile.getStatus().getMessage());
-                throw new RuntimeException();
+            if (!WzParseHelper.ensureParsed(wzXmlFile)) {
+                return;
             }
 
             WzIntProperty prop = new WzIntProperty(name, data.getValue(), wzXmlFile, wzXmlFile);
@@ -458,9 +454,8 @@ public final class WzXmlFileMenu extends JPopupMenu {
             }
 
             WzXmlFile wzXmlFile = (WzXmlFile) node.getUserObject();
-            if (!wzXmlFile.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzXmlFile.getName(), wzXmlFile.getStatus().getMessage());
-                throw new RuntimeException();
+            if (!WzParseHelper.ensureParsed(wzXmlFile)) {
+                return;
             }
 
             WzListProperty prop = new WzListProperty(name, wzXmlFile, wzXmlFile);
@@ -500,9 +495,8 @@ public final class WzXmlFileMenu extends JPopupMenu {
             }
 
             WzXmlFile wzXmlFile = (WzXmlFile) node.getUserObject();
-            if (!wzXmlFile.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzXmlFile.getName(), wzXmlFile.getStatus().getMessage());
-                throw new RuntimeException();
+            if (!WzParseHelper.ensureParsed(wzXmlFile)) {
+                return;
             }
 
             WzLongProperty prop = new WzLongProperty(name, data.getValue(), wzXmlFile, wzXmlFile);
@@ -542,9 +536,8 @@ public final class WzXmlFileMenu extends JPopupMenu {
             }
 
             WzXmlFile wzXmlFile = (WzXmlFile) node.getUserObject();
-            if (!wzXmlFile.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzXmlFile.getName(), wzXmlFile.getStatus().getMessage());
-                throw new RuntimeException();
+            if (!WzParseHelper.ensureParsed(wzXmlFile)) {
+                return;
             }
 
             WzNullProperty prop = new WzNullProperty(name, wzXmlFile, wzXmlFile);
@@ -584,9 +577,8 @@ public final class WzXmlFileMenu extends JPopupMenu {
             }
 
             WzXmlFile wzXmlFile = (WzXmlFile) node.getUserObject();
-            if (!wzXmlFile.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzXmlFile.getName(), wzXmlFile.getStatus().getMessage());
-                throw new RuntimeException();
+            if (!WzParseHelper.ensureParsed(wzXmlFile)) {
+                return;
             }
 
             WzShortProperty prop = new WzShortProperty(name, data.getValue(), wzXmlFile, wzXmlFile);
@@ -626,9 +618,8 @@ public final class WzXmlFileMenu extends JPopupMenu {
             }
 
             WzXmlFile wzXmlFile = (WzXmlFile) node.getUserObject();
-            if (!wzXmlFile.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzXmlFile.getName(), wzXmlFile.getStatus().getMessage());
-                throw new RuntimeException();
+            if (!WzParseHelper.ensureParsed(wzXmlFile)) {
+                return;
             }
 
             WzSoundProperty prop = new WzSoundProperty(name, wzXmlFile, wzXmlFile);
@@ -669,9 +660,8 @@ public final class WzXmlFileMenu extends JPopupMenu {
             }
 
             WzXmlFile wzXmlFile = (WzXmlFile) node.getUserObject();
-            if (!wzXmlFile.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzXmlFile.getName(), wzXmlFile.getStatus().getMessage());
-                throw new RuntimeException();
+            if (!WzParseHelper.ensureParsed(wzXmlFile)) {
+                return;
             }
 
             WzStringProperty prop = new WzStringProperty(name, data.getValue(), wzXmlFile, wzXmlFile);
@@ -711,9 +701,8 @@ public final class WzXmlFileMenu extends JPopupMenu {
             }
 
             WzXmlFile wzXmlFile = (WzXmlFile) node.getUserObject();
-            if (!wzXmlFile.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzXmlFile.getName(), wzXmlFile.getStatus().getMessage());
-                throw new RuntimeException();
+            if (!WzParseHelper.ensureParsed(wzXmlFile)) {
+                return;
             }
 
             WzUOLProperty prop = new WzUOLProperty(name, data.getValue(), wzXmlFile, wzXmlFile);
@@ -753,9 +742,8 @@ public final class WzXmlFileMenu extends JPopupMenu {
             }
 
             WzXmlFile wzXmlFile = (WzXmlFile) node.getUserObject();
-            if (!wzXmlFile.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzXmlFile.getName(), wzXmlFile.getStatus().getMessage());
-                throw new RuntimeException();
+            if (!WzParseHelper.ensureParsed(wzXmlFile)) {
+                return;
             }
 
             WzVectorProperty prop = new WzVectorProperty(name, data.getX(), data.getY(), wzXmlFile, wzXmlFile);
@@ -782,9 +770,8 @@ public final class WzXmlFileMenu extends JPopupMenu {
 
             DefaultMutableTreeNode node = (DefaultMutableTreeNode) selectedPaths[0].getLastPathComponent();
             WzImage wzImage = (WzImage) node.getUserObject();
-            if (!wzImage.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzImage.getName(), wzImage.getStatus().getMessage());
-                throw new RuntimeException();
+            if (!WzParseHelper.ensureParsed(wzImage)) {
+                return;
             }
             List<CanvasUtilData> data = new ArrayList<>();
             CanvasUtil.search(data, wzImage.getChildren());

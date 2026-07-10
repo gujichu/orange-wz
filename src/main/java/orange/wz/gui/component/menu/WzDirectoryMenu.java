@@ -15,6 +15,7 @@ import orange.wz.gui.utils.CanvasUtilData;
 import orange.wz.gui.utils.JMessageUtil;
 import orange.wz.gui.utils.MultiNodeNameParser;
 import orange.wz.gui.utils.TreePathUtil;
+import orange.wz.gui.utils.WzParseHelper;
 import orange.wz.provider.*;
 
 import javax.swing.*;
@@ -146,9 +147,8 @@ public final class WzDirectoryMenu extends JPopupMenu {
 
             WzDirectory wzDirectory = (WzDirectory) node.getUserObject();
             WzFile wzFile = wzDirectory.getWzFile();
-            if (!wzFile.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzFile.getName(), wzFile.getStatus().getMessage());
-                throw new RuntimeException();
+            if (!WzParseHelper.ensureParsed(wzFile)) {
+                return;
             }
 
             List<WzDirectory> created = new ArrayList<>(names.size());
@@ -205,9 +205,8 @@ public final class WzDirectoryMenu extends JPopupMenu {
 
             WzDirectory wzDirectory = (WzDirectory) node.getUserObject();
             WzFile wzFile = wzDirectory.getWzFile();
-            if (!wzFile.parse()) {
-                MainFrame.getInstance().setStatusText("文件 %s 解析失败: %s", wzFile.getName(), wzFile.getStatus().getMessage());
-                throw new RuntimeException();
+            if (!WzParseHelper.ensureParsed(wzFile)) {
+                return;
             }
 
             List<WzImage> created = new ArrayList<>(names.size());
