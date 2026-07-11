@@ -35,6 +35,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.Map;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.regex.Pattern;
 
@@ -82,8 +83,9 @@ public final class EditPane extends JSplitPane {
             Map.entry("video", new VideoForm())
     );
 
-    private final SearchDialog searchDialog = new SearchDialog("搜索", this);
-    private final List<SearchResult> searchResults = new ArrayList<>();
+    private final SearchIndex searchIndex = new SearchIndex();
+    private final SearchDialog searchDialog = new SearchDialog(null, this, this::startSearch, this::cancelSearch);
+    private SwingWorker<List<SearchResult>, Void> searchWorker;
 
     // 按键搜索
     private final StringBuilder inputBuffer = new StringBuilder();
@@ -787,59 +789,11 @@ public final class EditPane extends JSplitPane {
         });
 
         // Ctrl+F 搜索
-        EditPane editPane = this;
         im.put(KeyStroke.getKeyStroke(KeyEvent.VK_F, InputEvent.CTRL_DOWN_MASK), "search");
         am.put("search", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                SearchFormData option;
-                while (true) {
-                    option = searchDialog.getData();
-                    if (option == null) break;
-
-                    if (!option.nameMod() && !option.valueMod()) {
-                        JMessageUtil.warn("你要搜索名称还是值？");
-                        continue;
-                    }
-
-                    TreePath[] selectedPaths;
-                    if (option.globalMod()) {
-                        int childCount = treeRoot.getChildCount();
-                        selectedPaths = new TreePath[childCount];
-                        for (int i = 0; i < childCount; i++) {
-                            DefaultMutableTreeNode child = (DefaultMutableTreeNode) treeRoot.getChildAt(i);
-                            selectedPaths[i] = new TreePath(child.getPath());
-                        }
-                    } else {
-                        selectedPaths = tree.getSelectionPaths();
-                    }
-
-                    if (selectedPaths == null || selectedPaths.length == 0) {
-                        JMessageUtil.error("请选择要搜索的目标，或者勾选‘搜全局’");
-                        continue;
-                    }
-
-                    searchResults.clear();
-                    for (TreePath treePath : selectedPaths) {
-                        DefaultMutableTreeNode node = (DefaultMutableTreeNode) treePath.getLastPathComponent();
-                        SearchUtil.search(
-                                option.search(),
-                                option.nameMod(),
-                                option.valueMod(),
-                                option.equalMod(),
-                                option.lowMod(),
-                                option.parseImgMod(),
-                                searchResults,
-                                node,
-                                editPane
-                        );
-                    }
-
-                    String title = "搜索结果 '" + option.search() + "'";
-                    SearchResultDialog dialog = new SearchResultDialog(null, title, searchResults, editPane);
-                    dialog.setVisible(true);
-                    break;
-                }
+                openSearchDialog();
             }
         });
 
@@ -866,6 +820,113 @@ public final class EditPane extends JSplitPane {
                 selectNextMatchingSibling(prefix, path, true);
             }
         });
+    }
+
+    private void openSearchDialog() {
+        searchDialog.open(tree.getSelectionPath() == null);
+    }
+
+    private void startSearch(SearchFormData rawOption) {
+        cancelSearch();
+
+        SearchFormData option = normalizeSearchScope(rawOption);
+        List<DefaultMutableTreeNode> scopeRoots = collectSearchScope(option.globalMod());
+        if (scopeRoots.isEmpty()) {
+            searchDialog.setStatus("没有可搜索的节点");
+            searchDialog.setResults(Collections.emptyList(), option.search());
+            return;
+        }
+
+        searchDialog.setSearching(true);
+        searchDialog.setStatus("正在准备索引...");
+        SwingWorker<List<SearchResult>, Void> worker = new SwingWorker<>() {
+            @Override
+            protected List<SearchResult> doInBackground() {
+                if (option.parseImgMod()) {
+                    for (DefaultMutableTreeNode root : scopeRoots) {
+                        if (isCancelled()) {
+                            return Collections.emptyList();
+                        }
+                        expandTreeNode(root, true, true, false);
+                    }
+                }
+                if (isCancelled()) {
+                    return Collections.emptyList();
+                }
+                SwingUtilities.invokeLater(() -> searchDialog.setStatus("正在搜索..."));
+                return searchIndex.search(option, scopeRoots, this::isCancelled);
+            }
+
+            @Override
+            protected void done() {
+                if (searchWorker != this) {
+                    return;
+                }
+                searchDialog.setSearching(false);
+                try {
+                    List<SearchResult> results = get();
+                    if (isCancelled()) {
+                        searchDialog.setStatus("搜索已取消");
+                        return;
+                    }
+                    searchDialog.setResults(results, option.search());
+                    searchDialog.setStatus(String.format("找到 %d 个结果", results.size()));
+                } catch (CancellationException ex) {
+                    searchDialog.setStatus("搜索已取消");
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    searchDialog.setStatus("搜索已中断");
+                } catch (ExecutionException ex) {
+                    searchDialog.setStatus("搜索失败，请查看日志");
+                    log.error("search failed", ex.getCause());
+                } finally {
+                    searchWorker = null;
+                }
+            }
+        };
+        searchWorker = worker;
+        worker.execute();
+    }
+
+    private void cancelSearch() {
+        if (searchWorker != null && !searchWorker.isDone()) {
+            searchWorker.cancel(true);
+            searchDialog.setStatus("正在取消搜索...");
+        }
+    }
+
+    private SearchFormData normalizeSearchScope(SearchFormData option) {
+        if (option.globalMod() || tree.getSelectionPath() != null) {
+            return option;
+        }
+        return new SearchFormData(
+                option.search(),
+                option.nameMod(),
+                option.valueMod(),
+                option.equalMod(),
+                option.lowMod(),
+                option.parseImgMod(),
+                true
+        );
+    }
+
+    private List<DefaultMutableTreeNode> collectSearchScope(boolean global) {
+        List<DefaultMutableTreeNode> nodes = new ArrayList<>();
+        if (global) {
+            for (int i = 0; i < treeRoot.getChildCount(); i++) {
+                nodes.add((DefaultMutableTreeNode) treeRoot.getChildAt(i));
+            }
+            return nodes;
+        }
+
+        TreePath[] selectedPaths = tree.getSelectionPaths();
+        if (selectedPaths == null || selectedPaths.length == 0) {
+            return nodes;
+        }
+        for (TreePath path : selectedPaths) {
+            nodes.add((DefaultMutableTreeNode) path.getLastPathComponent());
+        }
+        return nodes;
     }
 
     // Tree 操作 --------------------------------------------------------------------------------------------------------
@@ -901,6 +962,7 @@ public final class EditPane extends JSplitPane {
     private DefaultMutableTreeNode insertNodeToTreeOnEdt(DefaultMutableTreeNode parentNode, WzObject object, boolean expand, int index) {
         DefaultMutableTreeNode newNode = new DefaultMutableTreeNode(object);
         treeModel.insertNodeInto(newNode, parentNode, index == -1 ? parentNode.getChildCount() : index);
+        searchIndex.addNode(newNode);
 
         if (expand) {
             tree.expandPath(new TreePath(parentNode.getPath()));
@@ -917,6 +979,7 @@ public final class EditPane extends JSplitPane {
         if (node == null || node.getParent() == null) {
             return;
         }
+        searchIndex.removeSubtree(node);
         treeModel.removeNodeFromParent(node);
     }
 
@@ -928,6 +991,7 @@ public final class EditPane extends JSplitPane {
             return;
         }
         treeModel.insertNodeInto(subtreeRoot, parentNode, parentNode.getChildCount());
+        searchIndex.addSubtree(subtreeRoot);
         if (expand) {
             tree.expandPath(new TreePath(parentNode.getPath()));
         }
@@ -950,6 +1014,7 @@ public final class EditPane extends JSplitPane {
         if (node == null) return;
         if (node.getParent() == null) return;
 
+        searchIndex.removeSubtree(node);
         for (int i = 0; i < node.getChildCount(); i++) {
             DefaultMutableTreeNode child = (DefaultMutableTreeNode) node.getChildAt(i);
             removeNodeFromTree(child);
@@ -1568,6 +1633,7 @@ public final class EditPane extends JSplitPane {
             DefaultMutableTreeNode child = (DefaultMutableTreeNode) treeRoot.getChildAt(0);
             removeNodeFromTree(child);
         }
+        searchIndex.clear();
         treeModel.reload(treeRoot);
         resetValueForm();
         // 清除所有缓存
